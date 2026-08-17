@@ -38,13 +38,51 @@ require_once __DIR__ . '/../lib/Actions/Usage.php';
 
 $host = isset($argv[1]) ? trim((string) $argv[1]) : '';
 $port = isset($argv[2]) && $argv[2] !== '' ? (int) $argv[2] : 2304;
-$key = (string) getenv('CWP_API_KEY');
+
+/**
+ * getenv() alone is not enough: some CLI builds are configured with a variables_order
+ * that leaves the environment out, so check every place PHP may have put it.
+ */
+function readKey(): string
+{
+    $key = (string) getenv('CWP_API_KEY');
+
+    if ($key === '' && isset($_SERVER['CWP_API_KEY'])) {
+        $key = (string) $_SERVER['CWP_API_KEY'];
+    }
+
+    if ($key === '' && isset($_ENV['CWP_API_KEY'])) {
+        $key = (string) $_ENV['CWP_API_KEY'];
+    }
+
+    return trim($key);
+}
+
+$key = readKey();
+
+// Last resort: prompt for it. Keeps the key out of the argument list either way.
+if ($key === '' && $host !== '' && function_exists('readline')) {
+    echo "CWP API key (input is visible): ";
+    $key = trim((string) readline());
+}
 
 if ($host === '' || $key === '') {
     echo "\nUsage:  CWP_API_KEY='<key>' php usage-probe.php <cwp-hostname> [port]\n\n";
-    if ($key === '') {
-        echo "  CWP_API_KEY is not set.\n\n";
+
+    if ($host === '') {
+        echo "  No hostname given.\n";
     }
+
+    if ($key === '') {
+        echo "  No API key found in CWP_API_KEY.\n\n";
+        echo "  If you set it with `read`, confirm it actually captured something:\n";
+        echo "      echo \"length: \${#CWP_API_KEY}\"\n\n";
+        echo "  `read -rs` prints no prompt, so it is easy to press Enter before pasting.\n";
+        echo "  Use a prompt and export in one step:\n\n";
+        echo "      read -rsp 'CWP API key: ' CWP_API_KEY && echo && export CWP_API_KEY\n";
+    }
+
+    echo "\n";
     exit(1);
 }
 
