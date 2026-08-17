@@ -1,7 +1,7 @@
 # CWP Hosting Module for WHMCS
 
 A provisioning module for [Control Web Panel](https://control-webpanel.com/), driving
-CWP's external API on port 2304.
+CWP's external API.
 
 Drop-in replacement for the stock `cwp7` module: same directory, same module type, same
 config option order. Existing server entries, products and services keep working with no
@@ -28,7 +28,6 @@ reconfiguration.
 
 - WHMCS 8.5 or later (tested through 9.0)
 - PHP 7.4 to 8.3, with `curl` and `json`
-- CWP with the external API reachable on port 2304
 
 ---
 
