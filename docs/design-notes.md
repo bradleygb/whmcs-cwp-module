@@ -100,8 +100,33 @@ never have worked — the same shape of latent failure as the usage import.
 The separate **Account pack change** entry in the API Manager grid is a *permission*, not
 a different endpoint.
 
-Because `add` and `udp` disagree on those two field names, `create()` sends both
-spellings until `add`'s own contract is read; CWP ignores fields it does not recognise.
+**`account`/`add` — the confirmed contract.** Read the same day:
+
+| Field | Notes |
+|---|---|
+| `domain`, `user`, `pass`, `email` | required |
+| `package` | **bare** — the `@` prefix is `udp` only |
+| `inode` | inodes |
+| `limit_nofile` | open files |
+| `limit_nproc` | processes |
+| `server_ips`, `autossl` (0/1), `encodepass`, `reseller`, `lang`, `debug` | optional |
+
+**Three names for the same two limits**, which is the trap:
+
+| | Open files | Processes |
+|---|---|---|
+| `add` | `limit_nofile` | `limit_nproc` |
+| `udp` | `openfiles` | `processes` |
+| original module (both) | `nofile` | `nproc` |
+
+`nofile`/`nproc` are accepted by neither, so every account created before 2.0.2 got CWP's
+package defaults rather than the product's limits. `Account::createFields()` and
+`Account::packageFields()` are public so tests assert each contract directly, rather than
+the whole thing being rediscovered a fourth time.
+
+Worth knowing for later: `add` takes an `autossl` (0/1) field, so a certificate can be
+requested at creation without the separate AutoSSL function or its permission. Not used —
+CWP issues and renews on its own schedule.
 
 **Package ID or name.** The value is passed through verbatim after the `@`, so the product
 option can hold whichever the server accepts.

@@ -468,6 +468,51 @@ $trusting = new Session($client, 'bob', true);
 $kept = invokePrivate($trusting, 'constrainToConfiguredHost', ['https://cwp-real.example.com:2083/l?t=1']);
 ok('trust_returned_host keeps CWP\'s host', $kept === 'https://cwp-real.example.com:2083/l?t=1');
 
+echo "\nCWP field contracts (add and udp disagree; both differ from the 2020 module)\n";
+
+$serviceParams = [
+    'username' => 'demo',
+    'password' => 'servicepw',
+    'domain' => 'example.com',
+    'serverip' => '198.51.100.7',
+    'clientsdetails' => ['email' => 'owner@example.com'],
+    'configoption1' => '10',
+    'configoption2' => '0',
+    'configoption3' => '150',
+    'configoption4' => '40',
+];
+$account = new Account(makeClient(), $serviceParams);
+
+$add = $account->createFields('demo', 'example.com');
+ok('add: limit_nofile carries the open-file limit', $add['limit_nofile'] === '150');
+ok('add: limit_nproc carries the process limit', $add['limit_nproc'] === '40');
+ok('add: package is sent bare, no @', $add['package'] === '10');
+ok('add: email included', $add['email'] === 'owner@example.com');
+ok('add: no nofile/nproc (neither endpoint accepts them)', !isset($add['nofile']) && !isset($add['nproc']));
+ok('add: no openfiles/processes (those are udp names)', !isset($add['openfiles']) && !isset($add['processes']));
+
+$udp = $account->packageFields('demo');
+ok('udp: openfiles carries the open-file limit', $udp['openfiles'] === '150');
+ok('udp: processes carries the process limit', $udp['processes'] === '40');
+ok('udp: package is @-prefixed, not suffixed', $udp['package'] === '@10');
+ok('udp: email included (CWP requires it)', $udp['email'] === 'owner@example.com');
+ok('udp: no limit_nofile/limit_nproc (those are add names)',
+    !isset($udp['limit_nofile']) && !isset($udp['limit_nproc']));
+
+$noEmail = new Account(makeClient(), array_merge($serviceParams, ['clientsdetails' => []]));
+throwsKind(
+    'udp without a client email is refused before the call',
+    function () use ($noEmail) { $noEmail->packageFields('demo'); },
+    CwpException::KIND_CONFIG
+);
+
+$noPackage = new Account(makeClient(), array_merge($serviceParams, ['configoption1' => '']));
+throwsKind(
+    'add without a package is refused before the call',
+    function () use ($noPackage) { $noPackage->createFields('demo', 'example.com'); },
+    CwpException::KIND_CONFIG
+);
+
 echo "\nUsername normalisation (creation only)\n";
 
 $usernameCases = [

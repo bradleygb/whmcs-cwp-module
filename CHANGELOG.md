@@ -14,10 +14,15 @@ All notable changes to this module are documented here.
 
 ### Fixed
 
+- **Resource limits were never applied to new accounts.** CWP's `add` endpoint expects
+  `limit_nofile` and `limit_nproc`; `udp` calls the same two limits `openfiles` and
+  `processes`; the module sent `nofile` and `nproc`, which neither accepts. Every account
+  created by earlier versions therefore carries its CWP package defaults rather than the
+  product's open-file and process limits. **Run Change Package on existing services** to
+  apply them.
 - **Package changes were malformed and could not have worked.** CWP documents the package
   as *"name or ID with @ front"*; the module sent the value bare and then retried with the
-  `@` appended. It also omitted the required `email`, and sent `nofile`/`nproc` where this
-  endpoint expects `openfiles`/`processes`.
+  `@` appended. It also omitted the required `email`.
 - **A package change is now verified.** `status OK` is not evidence, so the account is
   re-read afterwards and the operation fails loudly if CWP did not move it.
 - **Account creation no longer times out at 20 seconds.** Reads keep the short budget;

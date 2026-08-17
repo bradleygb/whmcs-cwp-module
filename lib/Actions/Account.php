@@ -68,31 +68,8 @@ final class Account
             throw CwpException::config('no domain on the service — CWP cannot create an account without one');
         }
 
-        $openFiles = (string) $this->param('configoption3', '100');
-        $processes = (string) $this->param('configoption4', '40');
-
-        $fields = [
-            'domain' => $domain,
-            // CWP accepts both spellings of the username field on this endpoint.
-            'username' => $username,
-            'user' => $username,
-            'pass' => (string) $this->param('password'),
-            'email' => (string) $this->clientEmail(),
-            'package' => $this->packageValue(),
-            'inode' => (string) $this->param('configoption2', '0'),
-            'server_ips' => (string) $this->param('serverip'),
-
-            // udp documents these as openfiles/processes while the original module used
-            // nofile/nproc for add. Both spellings are sent until add's own contract is
-            // confirmed; CWP ignores fields it does not recognise.
-            'nofile' => $openFiles,
-            'openfiles' => $openFiles,
-            'nproc' => $processes,
-            'processes' => $processes,
-        ];
-
         try {
-            $this->client->call('account', 'add', $fields);
+            $this->client->call('account', 'add', $this->createFields($username, $domain));
         } catch (CwpException $e) {
             // CWP keeps building after the module gives up, so a timeout is not proof
             // that nothing happened.
@@ -100,6 +77,64 @@ final class Account
                 throw $e;
             }
         }
+    }
+
+    /**
+     * The POST fields for `account`/`add`, per Interactive Documentation.
+     *
+     * Note `limit_nofile` and `limit_nproc`: `udp` calls the same two limits `openfiles`
+     * and `processes`, and the original module used `nofile` and `nproc`, which neither
+     * endpoint accepts — so those limits were silently never applied. Public so the
+     * contract can be asserted in tests rather than rediscovered.
+     *
+     * @return array<string,string>
+     *
+     * @throws CwpException
+     */
+    public function createFields(string $username, string $domain): array
+    {
+        return [
+            'domain' => $domain,
+            'user' => $username,
+            'pass' => (string) $this->param('password'),
+            'email' => $this->clientEmail(),
+            'package' => $this->packageValue(),
+            'inode' => (string) $this->param('configoption2', '0'),
+            'limit_nofile' => (string) $this->param('configoption3', '100'),
+            'limit_nproc' => (string) $this->param('configoption4', '40'),
+            'server_ips' => (string) $this->param('serverip'),
+        ];
+    }
+
+    /**
+     * The POST fields for `account`/`udp`, per Interactive Documentation.
+     *
+     * The `@` prefixes the package value here — CWP documents "Package name or ID with @
+     * front" — and `email` is required. Public for the same reason as createFields().
+     *
+     * @return array<string,string>
+     *
+     * @throws CwpException
+     */
+    public function packageFields(string $username): array
+    {
+        $email = $this->clientEmail();
+
+        if ($email === '') {
+            throw CwpException::config(
+                'the client has no email address — CWP rejects a package change without one'
+            );
+        }
+
+        return [
+            'user' => $username,
+            'email' => $email,
+            'package' => '@' . $this->packageValue(),
+            'inode' => (string) $this->param('configoption2', '0'),
+            'openfiles' => (string) $this->param('configoption3', '100'),
+            'processes' => (string) $this->param('configoption4', '40'),
+            'server_ips' => (string) $this->param('serverip'),
+        ];
     }
 
     /**
@@ -188,28 +223,9 @@ final class Account
     public function changePackage(): void
     {
         $username = $this->resolveUsername();
-        $package = $this->packageValue();
-        $email = $this->clientEmail();
 
-        if ($email === '') {
-            throw CwpException::config(
-                'the client has no email address — CWP rejects a package change without one'
-            );
-        }
-
-        $this->client->call('account', 'udp', [
-            'user' => $username,
-            'email' => $email,
-            // The '@' prefixes the value: CWP documents "Package name or ID with @ front".
-            'package' => '@' . $package,
-            'inode' => (string) $this->param('configoption2', '0'),
-            // udp names these differently from add.
-            'openfiles' => (string) $this->param('configoption3', '100'),
-            'processes' => (string) $this->param('configoption4', '40'),
-            'server_ips' => (string) $this->param('serverip'),
-        ]);
-
-        $this->assertPackageApplied($package);
+        $this->client->call('account', 'udp', $this->packageFields($username));
+        $this->assertPackageApplied($this->packageValue());
     }
 
     /**
