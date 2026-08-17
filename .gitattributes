@@ -1,0 +1,9 @@
+# This module is deployed to Linux servers, so normalise to LF in the repository and
+# the working tree regardless of the platform it is edited on.
+* text=auto eol=lf
+
+*.php  text eol=lf
+*.tpl  text eol=lf
+*.md   text eol=lf
+
+*.zip  binary

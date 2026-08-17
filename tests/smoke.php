@@ -1,0 +1,447 @@
+<?php
+/**
+ * Standalone smoke tests. No framework, no network, no WHMCS.
+ *
+ *   php tests/smoke.php
+ *
+ * Covers the parts of the module that are pure logic: host normalisation, config
+ * validation, the URL-injection guards, response interpretation, autologin URL
+ * extraction and constraint, username normalisation and usage coercion. Everything
+ * that needs a live CWP box belongs in the Phase 0 probes instead — see
+ * docs/cwp-api-map.md.
+ *
+ * PHP 7.4 compatible, like the module itself, so it can also be run on the WHMCS host.
+ */
+
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit("This file runs from the command line only.\n");
+}
+
+require_once __DIR__ . '/../lib/CwpException.php';
+require_once __DIR__ . '/../lib/CwpClient.php';
+require_once __DIR__ . '/../lib/Actions/Account.php';
+require_once __DIR__ . '/../lib/Actions/Session.php';
+require_once __DIR__ . '/../lib/Actions/Usage.php';
+
+use Cwp7\Actions\Account;
+use Cwp7\Actions\Session;
+use Cwp7\Actions\Usage;
+use Cwp7\CwpClient;
+use Cwp7\CwpException;
+
+$passed = 0;
+$failed = 0;
+
+function ok(string $label, bool $condition): void
+{
+    global $passed, $failed;
+
+    if ($condition) {
+        $passed++;
+        echo "  PASS  {$label}\n";
+    } else {
+        $failed++;
+        echo "  FAIL  {$label}\n";
+    }
+}
+
+function throwsKind(string $label, callable $fn, string $expectedKind): void
+{
+    try {
+        $fn();
+        ok($label . ' (expected ' . $expectedKind . ', nothing thrown)', false);
+    } catch (CwpException $e) {
+        ok($label . ' -> ' . $e->getKind(), $e->getKind() === $expectedKind);
+    }
+}
+
+/**
+ * Reach a private method for testing.
+ *
+ * @param object|string     $target
+ * @param array<int,mixed>  $args
+ *
+ * @return mixed
+ */
+function invokePrivate($target, string $method, array $args)
+{
+    $class = is_object($target) ? get_class($target) : $target;
+    $ref = new ReflectionMethod($class, $method);
+    $ref->setAccessible(true);
+
+    return $ref->invokeArgs(is_object($target) ? $target : null, $args);
+}
+
+/**
+ * @param array<string,mixed> $overrides
+ */
+function makeClient(array $overrides = []): CwpClient
+{
+    return new CwpClient(array_merge([
+        'host' => 'cwp.example.com',
+        'key' => 'test-key-abc123',
+        'api_port' => 2304,
+        'panel_port' => 2083,
+        'admin_port' => 2031,
+        'verify_tls' => true,
+        'connect_timeout' => 5,
+        'timeout' => 20,
+        'debug' => false,
+    ], $overrides));
+}
+
+// ---------------------------------------------------------------------------
+
+echo "\nHost normalisation\n";
+
+$hostCases = [
+    ['cwp.example.com', 'cwp.example.com'],
+    ['  cwp.example.com  ', 'cwp.example.com'],
+    ['https://cwp.example.com', 'cwp.example.com'],
+    ['https://cwp.example.com:2304/', 'cwp.example.com'],
+    ['http://cwp.example.com/path/here', 'cwp.example.com'],
+    ['203.0.113.10', '203.0.113.10'],
+    ['https://203.0.113.10:2304', '203.0.113.10'],
+    ['', null],
+    ['   ', null],
+    ['not a host!', null],
+];
+
+foreach ($hostCases as $case) {
+    $actual = invokePrivate(CwpClient::class, 'normaliseHost', [$case[0]]);
+    ok(
+        sprintf('%-34s -> %s', var_export($case[0], true), var_export($case[1], true)),
+        $actual === $case[1]
+    );
+}
+
+echo "\nConstructor validation\n";
+
+throwsKind('empty API key rejected', function () { makeClient(['key' => '']); }, CwpException::KIND_CONFIG);
+throwsKind('whitespace API key rejected', function () { makeClient(['key' => '   ']); }, CwpException::KIND_CONFIG);
+throwsKind('empty host rejected', function () { makeClient(['host' => '']); }, CwpException::KIND_CONFIG);
+throwsKind('malformed host rejected', function () { makeClient(['host' => 'not a host!']); }, CwpException::KIND_CONFIG);
+throwsKind('port 0 rejected', function () { makeClient(['api_port' => 0]); }, CwpException::KIND_CONFIG);
+throwsKind('port 70000 rejected', function () { makeClient(['api_port' => 70000]); }, CwpException::KIND_CONFIG);
+
+$client = makeClient();
+ok('valid config constructs', $client->getHost() === 'cwp.example.com');
+ok('panel URL uses the panel port', $client->getPanelUrl() === 'https://cwp.example.com:2083');
+ok('admin URL uses the admin port', $client->getAdminUrl() === 'https://cwp.example.com:2031');
+ok('getOption reads merged settings', $client->getOption('timeout') === 20);
+ok('getOption falls back', $client->getOption('nope', 'dflt') === 'dflt');
+
+echo "\nURL-injection guards (must reject before any socket opens)\n";
+
+$badFunctions = [
+    '../account',
+    'account/../../etc/passwd',
+    'account?key=x',
+    'Account',
+    'account name',
+    '',
+    'account#frag',
+    'account&action=del',
+];
+
+foreach ($badFunctions as $fn) {
+    throwsKind(
+        sprintf('function %-26s rejected', var_export($fn, true)),
+        function () use ($client, $fn) { $client->call($fn, 'list'); },
+        CwpException::KIND_CONFIG
+    );
+}
+
+foreach (['li st', 'LIST', 'list;del', '', 'list1'] as $action) {
+    throwsKind(
+        sprintf('action %-28s rejected', var_export($action, true)),
+        function () use ($client, $action) { $client->call('account', $action); },
+        CwpException::KIND_CONFIG
+    );
+}
+
+echo "\nResponse interpretation\n";
+
+$ctx = ['function' => 'test', 'action' => 'list'];
+
+// Numeric libcurl codes, not CURLE_* constants — the constant set varies by build and
+// CURLE_PEER_FAILED_VERIFICATION is undefined on PHP 8.3. See TLS_VERIFY_ERRORS.
+throwsKind(
+    'cURL timeout (28) -> transport',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['', 0, 28, 'timed out', $ctx]); },
+    CwpException::KIND_TRANSPORT
+);
+
+throwsKind(
+    'could not connect (7) -> transport',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['', 0, 7, 'refused', $ctx]); },
+    CwpException::KIND_TRANSPORT
+);
+
+foreach ([51, 60, 77, 83] as $tlsErrno) {
+    $thrown = null;
+    try {
+        invokePrivate($client, 'interpret', ['', 0, $tlsErrno, 'cert problem', $ctx]);
+    } catch (CwpException $e) {
+        $thrown = $e;
+    }
+
+    ok(
+        "TLS error {$tlsErrno} -> transport, and names ca_bundle as the fix",
+        $thrown !== null
+            && $thrown->getKind() === CwpException::KIND_TRANSPORT
+            && strpos($thrown->getMessage(), 'ca_bundle') !== false
+    );
+}
+
+echo "\nTransport diagnostics (the resolved address must be named)\n";
+
+$refused = null;
+try {
+    invokePrivate($client, 'interpret', [
+        '', 0, 7, 'Failed to connect',
+        array_merge($ctx, ['curl_errno' => 7, 'resolved_ip' => '10.0.0.201']),
+    ]);
+} catch (CwpException $e) {
+    $refused = $e;
+}
+ok('refusal names the address actually dialled', $refused !== null && strpos($refused->getMessage(), '10.0.0.201') !== false);
+ok('refusal flags an RFC1918 address', $refused !== null && strpos($refused->getMessage(), 'private (RFC1918)') !== false);
+
+$public = null;
+try {
+    invokePrivate($client, 'interpret', [
+        '', 0, 7, 'Failed to connect',
+        array_merge($ctx, ['curl_errno' => 7, 'resolved_ip' => '198.51.100.7']),
+    ]);
+} catch (CwpException $e) {
+    $public = $e;
+}
+ok('public address is named but not flagged', $public !== null
+    && strpos($public->getMessage(), '198.51.100.7') !== false
+    && strpos($public->getMessage(), 'RFC1918') === false);
+
+ok('isPrivateIp: 10.0.0.201', CwpClient::isPrivateIp('10.0.0.201'));
+ok('isPrivateIp: 10.0.0.5', CwpClient::isPrivateIp('10.0.0.5'));
+ok('isPrivateIp: 172.16.0.1', CwpClient::isPrivateIp('172.16.0.1'));
+ok('isPrivateIp: 127.0.0.1', CwpClient::isPrivateIp('127.0.0.1'));
+ok('isPrivateIp: 198.51.100.7 is public', !CwpClient::isPrivateIp('198.51.100.7'));
+ok('isPrivateIp: not an IP', !CwpClient::isPrivateIp('cwp.example.com'));
+
+throwsKind(
+    'empty body -> protocol',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['', 200, 0, '', $ctx]); },
+    CwpException::KIND_PROTOCOL
+);
+
+throwsKind(
+    'HTTP 404 -> protocol (drives the ping() fallback)',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['not found', 404, 0, '', $ctx]); },
+    CwpException::KIND_PROTOCOL
+);
+
+throwsKind(
+    'non-JSON body -> protocol',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['garbage not json', 200, 0, '', $ctx]); },
+    CwpException::KIND_PROTOCOL
+);
+
+throwsKind(
+    'XML body -> config (key set to XML)',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['<?xml version="1.0"?><r/>', 200, 0, '', $ctx]); },
+    CwpException::KIND_CONFIG
+);
+
+throwsKind(
+    'status=Error -> api',
+    function () use ($client, $ctx) {
+        invokePrivate($client, 'interpret', ['{"status":"Error","msg":"Account does not exist"}', 200, 0, '', $ctx]);
+    },
+    CwpException::KIND_API
+);
+
+// The whole point of MESSAGE_KEYS: the 2020 field name must still surface.
+$legacyErr = null;
+try {
+    invokePrivate($client, 'interpret', ['{"status":"Error","msj":"Account does not exist"}', 200, 0, '', $ctx]);
+} catch (CwpException $e) {
+    $legacyErr = $e;
+}
+ok(
+    'status=Error with legacy "msj" still reports the reason',
+    $legacyErr !== null && strpos($legacyErr->getMessage(), 'Account does not exist') !== false
+);
+
+// CWP quotes the submitted key back in "Unauthorized action <key>". That text lands on
+// the admin's screen, so the key must never survive the trip.
+$echoed = null;
+try {
+    invokePrivate($client, 'interpret', [
+        '{"status":"Error","msg":"Unauthorized action test-key-abc123"}', 200, 0, '', $ctx,
+    ]);
+} catch (CwpException $e) {
+    $echoed = $e;
+}
+ok('an echoed API key is redacted from the error', $echoed !== null
+    && strpos($echoed->getMessage(), 'test-key-abc123') === false);
+ok('the rest of the error survives redaction', $echoed !== null
+    && strpos($echoed->getMessage(), 'Unauthorized action') !== false);
+ok('redaction is visible, not silent', $echoed !== null
+    && strpos($echoed->getMessage(), '[api key redacted]') !== false);
+ok('the refused function/action pair is named', $echoed !== null
+    && strpos($echoed->getMessage(), '[test/list]') !== false);
+
+$echoedBody = null;
+try {
+    invokePrivate($client, 'interpret', ['plain text with test-key-abc123 inside', 200, 0, '', $ctx]);
+} catch (CwpException $e) {
+    $echoedBody = $e;
+}
+ok('a key echoed in a non-JSON body is redacted too', $echoedBody !== null
+    && strpos($echoedBody->getMessage(), 'test-key-abc123') === false);
+
+throwsKind(
+    'missing status field -> api',
+    function () use ($client, $ctx) { invokePrivate($client, 'interpret', ['{"data":1}', 200, 0, '', $ctx]); },
+    CwpException::KIND_API
+);
+
+$okResponse = invokePrivate($client, 'interpret', ['{"status":"OK","emailadmin":"a@b.com"}', 200, 0, '', $ctx]);
+ok('status=OK returns the decoded array', $okResponse['emailadmin'] === 'a@b.com');
+
+$lowerOk = invokePrivate($client, 'interpret', ['{"status":"ok","x":1}', 200, 0, '', $ctx]);
+ok('status is matched case-insensitively', $lowerOk['x'] === 1);
+
+echo "\nPayload extraction (msg / msj)\n";
+
+ok('payload prefers msg', CwpClient::payload(['msg' => 'a', 'msj' => 'b']) === 'a');
+ok('payload falls back to msj', CwpClient::payload(['msj' => 'b']) === 'b');
+ok('payload absent -> null', CwpClient::payload(['status' => 'OK']) === null);
+
+$rows = CwpClient::rows(['msj' => [['user' => 'bob'], ['user' => 'sue']]]);
+ok('rows returns a list', count($rows) === 2 && $rows[1]['user'] === 'sue');
+
+$single = CwpClient::rows(['msg' => ['user' => 'bob']]);
+ok('rows promotes a bare row to a list', count($single) === 1 && $single[0]['user'] === 'bob');
+
+ok('rows tolerates a string payload', CwpClient::rows(['msg' => 'nope']) === []);
+ok('rows tolerates a missing payload', CwpClient::rows(['status' => 'OK']) === []);
+
+echo "\nError message flattening\n";
+
+ok('string msg', CwpClient::flattenMessage('plain') === 'plain');
+ok('int msg', CwpClient::flattenMessage(42) === '42');
+ok('array msg -> JSON', CwpClient::flattenMessage(['a' => 1]) === '{"a":1}');
+ok('null msg', CwpClient::flattenMessage(null) === 'unknown error');
+
+echo "\nAutologin URL extraction\n";
+
+$shapes = [
+    'details wrapper (2020 shape)' => [['details' => [['url' => 'https://h:2083/l?t=1']]], 'https://h:2083/l?t=1'],
+    'bare list of rows' => [[['url' => 'https://h:2083/l?t=2']], 'https://h:2083/l?t=2'],
+    'single row' => [['url' => 'https://h:2083/l?t=3'], 'https://h:2083/l?t=3'],
+    'plain string' => ['https://h:2083/l?t=4', 'https://h:2083/l?t=4'],
+    'alternate key' => [['link' => 'https://h:2083/l?t=5'], 'https://h:2083/l?t=5'],
+];
+
+foreach ($shapes as $label => $case) {
+    ok('extractUrl: ' . $label, Session::extractUrl($case[0]) === $case[1]);
+}
+
+ok('extractUrl rejects a non-URL string', Session::extractUrl('Account does not exist') === null);
+ok('extractUrl on an empty payload', Session::extractUrl([]) === null);
+ok('extractUrl on null', Session::extractUrl(null) === null);
+
+echo "\nAutologin host constraint (open-redirect guard)\n";
+
+$session = new Session($client, 'bob', false);
+
+$same = invokePrivate($session, 'constrainToConfiguredHost', ['https://cwp.example.com:2083/login?t=abc']);
+ok('matching host passes through untouched', $same === 'https://cwp.example.com:2083/login?t=abc');
+
+$foreign = invokePrivate($session, 'constrainToConfiguredHost', ['https://evil.example.net:2083/login?t=abc']);
+ok(
+    'foreign host is rewritten to the configured host, token intact',
+    $foreign === 'https://cwp.example.com:2083/login?t=abc'
+);
+
+$cleartext = invokePrivate($session, 'constrainToConfiguredHost', ['http://cwp.example.com:2083/login?t=abc']);
+ok('cleartext is upgraded to https', strpos($cleartext, 'https://') === 0);
+
+$trusting = new Session($client, 'bob', true);
+$kept = invokePrivate($trusting, 'constrainToConfiguredHost', ['https://cwp-real.example.com:2083/l?t=1']);
+ok('trust_returned_host keeps CWP\'s host', $kept === 'https://cwp-real.example.com:2083/l?t=1');
+
+echo "\nUsername normalisation (creation only)\n";
+
+$usernameCases = [
+    ['mydomain.co.za', 8, 'mydomain'],
+    ['MyDomain', 8, 'mydomain'],
+    ['my-domain_x', 8, 'mydomain'],
+    ['verylongusername', 8, 'verylong'],
+    ['verylongusername', 0, 'verylongusername'],
+    ['123abc', 8, 'abc'],
+    ['1234', 8, ''],
+    ['  bob  ', 8, 'bob'],
+    ['!!!', 8, ''],
+];
+
+foreach ($usernameCases as $case) {
+    $actual = Account::normaliseUsername($case[0], $case[1]);
+    ok(
+        sprintf('%-20s max %-2d -> %s', var_export($case[0], true), $case[1], var_export($case[2], true)),
+        $actual === $case[2]
+    );
+}
+
+echo "\nUsage coercion\n";
+
+$numericCases = [
+    ['1024', 1024.0],
+    ['1024 MB', 1024.0],
+    ['1.5', 1.5],
+    ['', 0.0],
+    ['unlimited', 0.0],
+    [2048, 2048.0],
+    [null, 0.0],
+];
+
+foreach ($numericCases as $case) {
+    ok(
+        sprintf('numeric(%-12s) -> %s', var_export($case[0], true), var_export($case[1], true)),
+        Usage::numeric($case[0]) === $case[1]
+    );
+}
+
+ok('pick takes the first present key', Usage::pick(['b' => 2, 'a' => 1], ['a', 'b']) === 1);
+ok('pick skips empty values', Usage::pick(['a' => '', 'b' => 2], ['a', 'b']) === 2);
+ok('pick returns null when nothing matches', Usage::pick(['z' => 1], ['a', 'b']) === null);
+
+echo "\nClient-safe messaging\n";
+
+$apiError = CwpException::api('user bob owns /home/bob and 4 other accounts');
+ok(
+    'raw CWP detail stays out of the client message',
+    strpos($apiError->getClientMessage(), 'bob') === false
+);
+ok(
+    'raw CWP detail is kept for the module log',
+    strpos($apiError->getMessage(), 'bob') !== false
+);
+
+$specific = $apiError->withClientMessage('That database name is already in use.');
+ok('withClientMessage sets the safe message', $specific->getClientMessage() === 'That database name is already in use.');
+ok('withClientMessage does not mutate the original', $apiError->getClientMessage() !== $specific->getClientMessage());
+ok('withClientMessage preserves the technical message', strpos($specific->getMessage(), 'bob') !== false);
+
+ok('transport errors are retryable', CwpException::transport('timeout')->isRetryable());
+ok('api errors are not retryable', !CwpException::api('nope')->isRetryable());
+ok('config errors are not retryable', !CwpException::config('bad')->isRetryable());
+
+echo "\n" . str_repeat('-', 52) . "\n";
+printf("  %d passed, %d failed\n\n", $passed, $failed);
+
+exit($failed === 0 ? 0 : 1);

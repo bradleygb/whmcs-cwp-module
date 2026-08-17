@@ -1,0 +1,54 @@
+# CWP API key permissions
+
+Create the key in **CWP → Settings → API Manager → Create New API Key**.
+
+## Response format
+
+Set the key to **JSON**. XML is detected and reported as a configuration error, but is
+not supported.
+
+## IP whitelist
+
+Enter the address the WHMCS server **connects from**, which is not always the address you
+expect:
+
+- WHMCS on a routed LAN reaches CWP from its **private** address. CWP sees that, not your
+  public IP.
+- WHMCS behind NAT elsewhere reaches CWP from the **public** address of its own network.
+
+If in doubt, attempt a connection and read `/var/log/cwp/cwp_api.log` on the CWP server —
+it records the source address. (Set `'debug' => true` in `config.php` for full request
+detail, and turn it off afterwards.)
+
+## Grants
+
+The permissions grid is per **function** and per **action**. An action left off produces
+`Unauthorized action` even when the function looks enabled, so check both axes.
+
+| Function | Actions | Needed for |
+|---|---|---|
+| Account | `add`, `upd`, `del`, **`list`**, `susp`, `unsp` | The provisioning lifecycle. `list` also drives usage import and Server Sync. |
+| Account Details | `list` | Account detail on the admin service page. |
+| Account pack change | `upd` | Package changes on upgrade/downgrade. |
+| Change of password | `upd` | Password changes. |
+| Autologin | `list` | Single sign-on to the control panel. |
+| Type Server | `list` | Optional. Test Connection's first probe; it falls back to `Account`/`list`. |
+
+**Grant nothing else.** In particular the module makes no AutoSSL, Packages, MySQL, FTP,
+Email, DNS Cluster or Cluster call, so those permissions add exposure without adding
+function. This key is administrative over every account on the server — keep it narrow.
+
+## Firewall
+
+Port **2304** must be open from the WHMCS server to CWP:
+
+- **Inbound on CWP** — `TCP_IN` in `/etc/csf/csf.conf` if you run CSF.
+- **Outbound on the WHMCS server** — `TCP_OUT` in its own `/etc/csf/csf.conf`. CSF's
+  `DROP_OUT` default is `REJECT`, so a missing entry here shows up as an immediate
+  "Connection refused" rather than a timeout. This one is easy to miss.
+
+## Verifying
+
+Press **Test Connection** on the server entry. If it fails, the message distinguishes
+name resolution, a refused connection, a timeout and a certificate fault, and names the
+address that was actually dialled.

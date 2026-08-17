@@ -1,0 +1,16 @@
+# Local server-scoped configuration. Users copy config.sample.php to this; it holds
+# per-installation TLS and port settings and must never be committed or distributed.
+config.php
+
+# Release archives and staging
+*.zip
+/release/
+/rel*/
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

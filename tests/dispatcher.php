@@ -1,0 +1,262 @@
+<?php
+/**
+ * Dispatcher tests. WHMCS stubbed, no network, no database.
+ *
+ *   php tests/dispatcher.php
+ *
+ * Loads cwp7.php and exercises every entry point that does not need a socket. This is
+ * what catches a missing `use`, a wrong signature, a template-variable typo, a
+ * reordered config option (which would silently repoint every live product's settings)
+ * or a credential leaking into the module log.
+ *
+ * The calls that DO need a socket are covered by the manual checklist in README.md.
+ *
+ * PHP 7.4 compatible.
+ */
+
+declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit("This file runs from the command line only.\n");
+}
+
+define('WHMCS', true);
+define('CWP7_DIR', dirname(__DIR__));
+
+$GLOBALS['moduleLog'] = [];
+$GLOBALS['activityLog'] = [];
+
+if (!function_exists('logModuleCall')) {
+    function logModuleCall($module, $action, $request = '', $response = '', $processed = '', $replaceVars = [])
+    {
+        $GLOBALS['moduleLog'][] = [
+            'action' => $action,
+            'request' => is_scalar($request) ? (string) $request : json_encode($request),
+            'response' => is_scalar($response) ? (string) $response : json_encode($response),
+            'replaceVars' => $replaceVars,
+        ];
+    }
+}
+
+if (!function_exists('logActivity')) {
+    function logActivity($message)
+    {
+        $GLOBALS['activityLog'][] = $message;
+    }
+}
+
+require CWP7_DIR . '/cwp7.php';
+
+$passed = 0;
+$failed = 0;
+
+function ok(string $label, bool $cond): void
+{
+    global $passed, $failed;
+
+    if ($cond) {
+        $passed++;
+        echo "  PASS  $label\n";
+    } else {
+        $failed++;
+        echo "  FAIL  $label\n";
+    }
+}
+
+$params = [
+    'serverid' => 3,
+    'serviceid' => 42,
+    'server' => true,
+    'serverhostname' => 'cwp.example.com',
+    'serverip' => '203.0.113.10',
+    'serveraccesshash' => 'SUPERSECRETKEY',
+    'serverpassword' => 'rootpw',
+    'serverusername' => 'root',
+    'username' => 'testuser',
+    'password' => 'servicepw',
+    'domain' => 'example.co.za',
+    'clientsdetails' => ['email' => 'a@b.com', 'firstname' => 'A', 'lastname' => 'B'],
+    'configoption1' => '5',
+    'configoption2' => '0',
+    'configoption3' => '100',
+    'configoption4' => '40',
+    'configoption5' => '',
+];
+
+// A host that fails validation, so every call fails before a socket is opened.
+$offline = array_merge($params, ['serverhostname' => 'not a host!', 'serverip' => '']);
+
+echo "\nFunction surface\n";
+
+$expected = [
+    'MetaData', 'ConfigOptions', 'TestConnection', 'AdminLink', 'LoginLink',
+    'CreateAccount', 'SuspendAccount', 'UnsuspendAccount', 'TerminateAccount',
+    'ChangePassword', 'ChangePackage', 'Renew', 'UsageUpdate',
+    'ServiceSingleSignOn', 'ClientArea', 'AdminServicesTabFields', 'ListAccounts',
+];
+foreach ($expected as $fn) {
+    ok("cwp7_$fn defined", function_exists('cwp7_' . $fn));
+}
+
+// Absent on purpose. WHMCS renders a button for anything declared here, so an
+// accidental re-add would put a duplicate-of-CWP action back in front of customers.
+foreach (['ClientAreaCustomButtonArray', 'AdminCustomButtonArray', 'requestAutoSsl'] as $fn) {
+    ok("cwp7_$fn NOT defined (CWP handles AutoSSL itself)", !function_exists('cwp7_' . $fn));
+}
+
+echo "\nMetaData\n";
+$meta = cwp7_MetaData();
+ok('DisplayName set', !empty($meta['DisplayName']));
+ok('APIVersion 1.1', $meta['APIVersion'] === '1.1');
+ok('RequiresServer', $meta['RequiresServer'] === true);
+ok('default port 2304 both ways', $meta['DefaultSSLPort'] === '2304' && $meta['DefaultNonSSLPort'] === '2304');
+ok('ServiceSingleSignOnLabel present', !empty($meta['ServiceSingleSignOnLabel']));
+ok('no AdminSingleSignOnLabel (CWP has no admin SSO endpoint)', !isset($meta['AdminSingleSignOnLabel']));
+ok('ListAccounts identifier is domain', $meta['ListAccountsUniqueIdentifierField'] === 'domain');
+ok('ListAccounts product field is configoption1', $meta['ListAccountsProductField'] === 'configoption1');
+
+echo "\nConfigOptions slot ordering (FROZEN — live products store values by position)\n";
+$opts = cwp7_ConfigOptions();
+$keys = array_keys($opts);
+ok('5 options', count($opts) === 5);
+ok('slot 1 is the package', $keys[0] === 'package');
+ok('slot 2 is inode', $keys[1] === 'inode');
+ok('slot 3 is nofile', $keys[2] === 'nofile');
+ok('slot 4 is nproc', $keys[3] === 'nproc');
+ok('slot 5 is usernamelength (added after 2020)', $keys[4] === 'usernamelength');
+$allFriendly = true;
+foreach ($opts as $o) {
+    if (empty($o['FriendlyName'])) {
+        $allFriendly = false;
+    }
+}
+ok('every option has a FriendlyName', $allFriendly);
+
+echo "\nClientArea (must not touch the network, must not carry a token)\n";
+$area = cwp7_ClientArea($params);
+ok('uses the additive overview template', isset($area['tabOverviewModuleOutputTemplate']));
+ok('template path is templates/overview', $area['tabOverviewModuleOutputTemplate'] === 'templates/overview');
+$vars = $area['templateVariables'];
+ok('panelUrl on port 2083', $vars['panelUrl'] === 'https://cwp.example.com:2083');
+ok('ssoUrl targets this service', $vars['ssoUrl'] === 'clientarea.php?action=productdetails&id=42&dosinglesignon=1');
+ok('no login token in the output', stripos(json_encode($vars), 'token') === false);
+ok('survives an unusable server entry', is_array(cwp7_ClientArea($offline)));
+
+$tpl = file_get_contents(CWP7_DIR . '/templates/overview.tpl');
+$missing = [];
+foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl'] as $v) {
+    if (strpos($tpl, '$' . $v) === false) {
+        $missing[] = $v;
+    }
+}
+ok('template uses every variable it is given', $missing === []);
+ok('every template output is escaped', substr_count($tpl, '|escape') === substr_count($tpl, '{$'));
+
+echo "\nAdmin links\n";
+ok('AdminLink points at the admin port 2031', strpos(cwp7_AdminLink($params), 'https://cwp.example.com:2031') !== false);
+ok('AdminLink degrades quietly', cwp7_AdminLink($offline) === '');
+ob_start();
+cwp7_LoginLink($params);
+$login = ob_get_clean();
+ok('LoginLink echoes a panel link', strpos($login, 'https://cwp.example.com:2083') !== false);
+ok('LoginLink mints no session token', stripos($login, 'user_session') === false);
+
+echo "\nRenew\n";
+ok('Renew is a clean no-op', cwp7_Renew($params) === 'success');
+
+echo "\nError paths (all fail before a socket opens)\n";
+
+$noUser = array_merge($params, ['username' => '']);
+
+$r = cwp7_SuspendAccount($noUser);
+ok('SuspendAccount returns a string, never an array', is_string($r));
+ok('SuspendAccount names the problem', strpos($r, 'no username') !== false);
+
+$r = cwp7_CreateAccount(array_merge($params, ['configoption1' => '']));
+ok('CreateAccount without a package is refused', is_string($r) && strpos($r, 'package') !== false);
+
+$r = cwp7_CreateAccount(array_merge($params, ['domain' => '']));
+ok('CreateAccount without a domain is refused', is_string($r) && strpos($r, 'domain') !== false);
+
+$r = cwp7_ChangePassword(array_merge($params, ['password' => '']));
+ok('ChangePassword with no password is refused', is_string($r) && strpos($r, 'password') !== false);
+
+$r = cwp7_ListAccounts($offline);
+ok('ListAccounts reports failure as success=false', $r['success'] === false && !empty($r['error']));
+
+$r = cwp7_TestConnection($offline);
+ok('TestConnection reports failure as success=false', $r['success'] === false);
+// A bad hostname is a config fault, so the hint points at the server entry rather than
+// at API Manager — which is the whole point of switching on the exception kind.
+ok('TestConnection failure carries a troubleshooting hint', strpos($r['error'], 'Access Hash') !== false);
+
+$r = cwp7_AdminServicesTabFields($offline);
+ok('AdminServicesTabFields degrades to a label', isset($r['CWP Account']) && is_string($r['CWP Account']));
+
+$sso = cwp7_ServiceSingleSignOn($noUser);
+ok('SSO failure returns success=false', $sso['success'] === false);
+ok('SSO error is the client-safe message', strpos($sso['errorMsg'], 'contact support') !== false);
+ok('SSO error leaks no internals', strpos($sso['errorMsg'], 'username') === false);
+
+// The 2020 version could throw a fatal TypeError from count(null) inside the cron.
+cwp7_UsageUpdate($offline);
+ok('UsageUpdate never throws, even with an unusable server', true);
+ok('UsageUpdate records the failure in the activity log', count($GLOBALS['activityLog']) > 0);
+
+echo "\nCredential masking\n";
+$masked = cwp7_safeParams($params);
+ok('access hash masked', $masked['serveraccesshash'] === '***');
+ok('server password masked', $masked['serverpassword'] === '***');
+ok('service password masked', $masked['password'] === '***');
+ok('clientsdetails reduced to the email', $masked['clientsdetails'] === ['email' => 'a@b.com']);
+ok('secrets list carries the real key for redaction', in_array('SUPERSECRETKEY', cwp7_secrets($params), true));
+
+$leaks = 0;
+foreach ($GLOBALS['moduleLog'] as $entry) {
+    if (strpos($entry['request'], 'SUPERSECRETKEY') !== false || strpos($entry['response'], 'SUPERSECRETKEY') !== false) {
+        $leaks++;
+    }
+}
+ok('no module log entry contains the raw API key', $leaks === 0);
+
+echo "\nStatus and date normalisation (Server Sync)\n";
+ok('suspended=1 -> Suspended', cwp7_normaliseStatus(['suspended' => 1]) === 'Suspended');
+ok('suspended=0 -> Active', cwp7_normaliseStatus(['suspended' => 0]) === 'Active');
+ok('status=Suspended -> Suspended', cwp7_normaliseStatus(['status' => 'Suspended']) === 'Suspended');
+ok('status=active -> Active', cwp7_normaliseStatus(['status' => 'active']) === 'Active');
+ok('status=unlocked is NOT read as suspended', cwp7_normaliseStatus(['status' => 'unlocked']) === 'Active');
+ok('no status field -> Active', cwp7_normaliseStatus(['domain' => 'x.com']) === 'Active');
+
+ok('date passthrough', cwp7_normaliseDate('2024-03-01 10:00:00') === '2024-03-01 10:00:00');
+ok('unix timestamp', cwp7_normaliseDate('1709287200') === date('Y-m-d H:i:s', 1709287200));
+ok('empty date', cwp7_normaliseDate('') === '');
+ok('unparseable date', cwp7_normaliseDate('not a date') === '');
+
+echo "\nTroubleshooting hints\n";
+ok('transport hint names port 2304', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::transport('x')), '2304') !== false);
+
+$refusedHint = cwp7_troubleshootingHint(\Cwp7\CwpException::transport('x', ['curl_errno' => 7]));
+ok('errno 7 hint says TLS is not involved', strpos($refusedHint, 'TLS and the API key are not involved') !== false);
+ok('errno 7 hint names CSF TCP_OUT', strpos($refusedHint, 'TCP_OUT') !== false);
+ok('errno 7 hint raises split-horizon DNS', strpos($refusedHint, 'split-horizon') !== false);
+
+$dnsHint = cwp7_troubleshootingHint(\Cwp7\CwpException::transport('x', ['curl_errno' => 6]));
+ok('errno 6 hint is about name resolution', strpos($dnsHint, 'did not resolve') !== false);
+
+$timeoutHint = cwp7_troubleshootingHint(\Cwp7\CwpException::transport('x', ['curl_errno' => 28]));
+ok('errno 28 hint distinguishes dropped from refused', strpos($timeoutHint, 'dropped rather than') !== false);
+
+echo "\nModule Command errors\n";
+$apiErr = cwp7_commandError(\Cwp7\CwpException::api('Unauthorized action [autossl/add]'));
+ok('API refusal points at API Manager', strpos($apiErr, 'API Manager') !== false);
+ok('API refusal keeps CWP\'s own text', strpos($apiErr, 'Unauthorized action') !== false);
+$transErr = cwp7_commandError(\Cwp7\CwpException::transport('timed out'));
+ok('a transport failure gets no permissions advice', strpos($transErr, 'API Manager') === false);
+ok('api hint names the IP whitelist', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::api('x')), 'whitelist') !== false);
+ok('config hint names JSON', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::config('x')), 'JSON') !== false);
+
+echo "\n" . str_repeat('-', 52) . "\n";
+printf("  %d passed, %d failed\n\n", $passed, $failed);
+
+exit($failed === 0 ? 0 : 1);
