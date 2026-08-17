@@ -46,7 +46,22 @@ and `ListAccounts` silently saw zero accounts.
 Subdomains arrive under **`subdomins`** — CWP's own typo — so both spellings are
 accepted.
 
-**Usage units are megabytes**, confirmed from the same response:
+**The two endpoints use different wrappers on the same server.** Confirmed 17 August 2026
+against a live CWP box:
+
+| Endpoint | Wrapper | Disk usage field | Bandwidth field |
+|---|---|---|---|
+| `account/list` | `msj` | `diskused` — **placeholder** | `bandwidth` = consumed |
+| `accountdetail/list` | `result` | `account_info.space_usage` — real | `bandwidth_used` |
+
+`diskused` came back as `1` for all seven accounts on that server while `accountdetail`
+reported `480715` and `1227` for two of them, so the list figure carries no information.
+`UsageUpdate` therefore takes limits and bandwidth from the one list call and fetches
+disk usage per account from `accountdetail` — but only for accounts that match a WHMCS
+service, so an unused account on the box costs nothing. `usage_detail_lookup` turns the
+extra calls off.
+
+**Usage units are megabytes**, confirmed from the same responses:
 `space_usage + space_available = space_disk` exactly, and a package advertised as
 "Large Web Hosting" reports `space_disk => 10000`. That is what WHMCS stores, so no
 conversion is applied.

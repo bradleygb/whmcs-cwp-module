@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.0.0
+ * @version 2.0.1
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
@@ -63,6 +63,19 @@ return [
          * own FQDN and the redirect must land on it.
          */
         'autologin_trust_returned_host' => false,
+
+        /**
+         * Read real disk usage during the daily usage import.
+         *
+         * CWP's account list reports a placeholder rather than actual consumption, so
+         * accurate figures need one extra call per account. That call is made only for
+         * accounts matching a WHMCS service on the server, so the cost is proportional
+         * to services rather than to every account on the box.
+         *
+         * Set to false on a server with many hundreds of accounts if you would rather
+         * have a single cheap call and accept the placeholder figure.
+         */
+        'usage_detail_lookup' => true,
 
         /**
          * Send debug=1 with every call, making CWP write request detail to

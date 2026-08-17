@@ -6,7 +6,7 @@
  * Responses are JSON: {"status":"OK", ...} or {"status":"Error","msg":"..."}.
  *
  * @package cwp7
- * @version 2.0.0
+ * @version 2.0.1
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module

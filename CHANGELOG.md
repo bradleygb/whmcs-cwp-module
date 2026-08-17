@@ -2,6 +2,31 @@
 
 All notable changes to this module are documented here.
 
+## 2.0.1
+
+### Fixed
+
+- **Disk usage was imported as zero for every service.** CWP's `account/list` names the
+  field `diskused`, which was not among the names the module looked for.
+- **Disk usage now comes from `accountdetail`.** `account/list` reports a placeholder
+  rather than real consumption — the same account shows `diskused => 1` there and
+  `space_usage => 480715` on `accountdetail`. Bandwidth and all limits still come from
+  the single list call, which reports them accurately.
+- **Responses under `result` are read.** Current CWP builds return success payloads under
+  `result`, older ones under `msj`, and errors under `msg`. All three are accepted;
+  `account/list` and `accountdetail` use different keys as the same server.
+- **`-1` is understood as unlimited** and stored as `0`, which is how WHMCS reads it. A
+  negative limit previously rendered as a negative usage bar.
+- Usage rows are matched to services by primary key rather than by a domain query, so a
+  domain shared by two services can no longer have both rewritten.
+
+### Added
+
+- `usage_detail_lookup` in `config.php` (default on). The accurate disk figure costs one
+  extra API call per account **that matches a WHMCS service on that server** — accounts
+  with no service are skipped before the call is made. Set to false to use the single
+  list call and accept the placeholder figure.
+
 ## 2.0.0
 
 A full rewrite of the CWP provisioning module. The module name, directory and function

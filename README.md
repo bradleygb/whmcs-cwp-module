@@ -162,6 +162,11 @@ controls.
   module.
 - The module makes no API call while rendering the client area, so an unreachable panel
   cannot stall a customer's page.
+- **Disk usage costs one extra API call per service, once a day.** CWP's account list
+  reports a placeholder rather than real consumption, so the accurate figure is read per
+  account — and only for accounts that match a WHMCS service on that server. Set
+  `usage_detail_lookup => false` in `config.php` to skip it on a very large server and
+  accept the placeholder.
 
 ---
 

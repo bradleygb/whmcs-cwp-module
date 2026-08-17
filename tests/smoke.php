@@ -341,6 +341,54 @@ $accountDetail = [
 $unwrapped = CwpClient::payload($accountDetail);
 ok('result payload is unwrapped', is_array($unwrapped) && isset($unwrapped['account_info']));
 ok('nested account_info survives', $unwrapped['account_info']['package_name'] === 'Regular');
+ok('disk usage read from nested account_info', Usage::diskUsageFrom($unwrapped) === 480715.59765625);
+ok('diskUsageFrom on a non-array', Usage::diskUsageFrom('nope') === null);
+ok('diskUsageFrom when the key is absent', Usage::diskUsageFrom(['account_info' => []]) === null);
+
+// account/list wraps under `msj` and names disk usage `diskused` — a different key and
+// a different wrapper from accountdetail on the same server.
+$accountList = [
+    'status' => 'OK',
+    'msj' => [
+        [
+            'package_name' => 'Regular', 'idpackage' => 2, 'username' => 'connect',
+            'domain' => 'example.com', 'ip_address' => '198.51.100.7',
+            'setup_date' => '2026-03-05 15:15:57',
+            'diskused' => 1, 'disklimit' => 700000,
+            'bandwidth' => 5, 'bwlimit' => -1, 'status' => 'active',
+        ],
+        [
+            'package_name' => 'Small', 'idpackage' => 6, 'username' => 'second',
+            'domain' => 'example.net', 'ip_address' => '198.51.100.7',
+            'diskused' => 1, 'disklimit' => 3000,
+            'bandwidth' => 56, 'bwlimit' => 5000, 'status' => 'suspended',
+        ],
+    ],
+];
+$listRows = CwpClient::rows($accountList);
+ok('msj payload yields rows', count($listRows) === 2);
+ok('diskused resolves through the candidates',
+    Usage::numeric(Usage::pick($listRows[0], Usage::FIELD_CANDIDATES['diskusage'])) === 1.0);
+ok('disklimit resolves',
+    Usage::numeric(Usage::pick($listRows[0], Usage::FIELD_CANDIDATES['disklimit'])) === 700000.0);
+ok('bandwidth is read as usage, not a limit',
+    Usage::numeric(Usage::pick($listRows[0], Usage::FIELD_CANDIDATES['bwusage'])) === 5.0);
+ok('bwlimit -1 becomes 0 (unlimited)',
+    Usage::numeric(Usage::pick($listRows[0], Usage::FIELD_CANDIDATES['bwlimit'])) === 0.0);
+ok('a real bwlimit survives',
+    Usage::numeric(Usage::pick($listRows[1], Usage::FIELD_CANDIDATES['bwlimit'])) === 5000.0);
+
+echo "\nService matching\n";
+
+$services = [
+    'domain' => ['example.com' => 11, 'example.net' => 12],
+    'username' => ['connect' => 11, 'legacy' => 13],
+];
+ok('matches on domain', Usage::matchService($services, 'example.com', 'connect') === 11);
+ok('domain wins over username', Usage::matchService($services, 'example.net', 'connect') === 12);
+ok('falls back to username', Usage::matchService($services, '', 'legacy') === 13);
+ok('username match is case-insensitive', Usage::matchService($services, '', 'LEGACY') === 13);
+ok('no match returns null', Usage::matchService($services, 'nowhere.com', 'nobody') === null);
 
 $rows = CwpClient::rows(['msj' => [['user' => 'bob'], ['user' => 'sue']]]);
 ok('rows returns a list', count($rows) === 2 && $rows[1]['user'] === 'sue');
