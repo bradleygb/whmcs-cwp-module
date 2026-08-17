@@ -162,9 +162,16 @@ FROM tblhosting WHERE server = <serverid>;
 ```
 
 **Anything else.** Set `'debug' => true` in `config.php`; CWP then writes full request
-detail to `/var/log/cwp/cwp_api.log` on the CWP server, including the source address it
-saw. Turn it off afterwards — that log sits outside WHMCS's retention and access
-controls.
+detail to `/var/log/cwp/cwp_api.log` **on the CWP server**, including the source address
+it saw and which permission check failed.
+
+> **That log records your API key in plaintext.** The key is administrative over every
+> account on the server, and the file is outside WHMCS's access controls. Use `debug` to
+> diagnose one specific call, then switch it off, delete the log, and rotate the key.
+
+The permission names CWP checks internally do not always match the API Manager labels —
+`account`/`udp` is checked as `accout_upd`, CWP's own typo — so the debug log is the only
+reliable way to see which grant a refused call actually wanted.
 
 ---
 

@@ -244,6 +244,21 @@ Neither suite needs a network, a database or WHMCS.
 
 Run both on the oldest and newest supported PHP before releasing.
 
+## CWP's debug log
+
+`debug => true` makes CWP write to `/var/log/cwp/cwp_api.log`. It is the only reliable way
+to see which permission a refused call actually wanted, because **the names CWP checks
+internally do not match the API Manager labels**:
+
+| API Manager row / column | Checked internally as |
+|---|---|
+| Account Details / LIST | `detailaccount_list` |
+| Account / UPD | `accout_upd` — CWP's own typo |
+
+The log also records **the API key in plaintext**, so it must be treated as a credential
+disclosure: switch debug off, delete the log, rotate the key. The module's own logging
+never writes the key; this is CWP's behaviour and cannot be prevented from this side.
+
 ## After a CWP upgrade
 
 Re-open API Manager and diff the permissions grid against `PERMISSIONS.md`. Functions

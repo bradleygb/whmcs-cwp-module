@@ -103,8 +103,12 @@ return [
          * Send debug=1 with every call, making CWP write request detail to
          * /var/log/cwp/cwp_api.log on the CWP server.
          *
-         * Useful when diagnosing an endpoint. Leave off in production: that log is
-         * outside WHMCS's retention and access controls.
+         * WARNING: that log records the API key IN PLAINTEXT, along with account data.
+         * The key is administrative over every account on the server, and the file sits
+         * outside WHMCS's retention and access controls entirely.
+         *
+         * Switch this on only to diagnose a specific call, then switch it off, delete
+         * the log, and treat the key as disclosed — rotate it. Never leave it on.
          */
         'debug' => false,
     ],
