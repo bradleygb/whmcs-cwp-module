@@ -197,6 +197,17 @@ foreach ([51, 60, 77, 83] as $tlsErrno) {
     );
 }
 
+echo "\nTimeout budgets\n";
+
+$timed = makeClient(['timeout' => 20, 'provision_timeout' => 180]);
+ok('reads use the short budget', $timed->timeoutFor('list') === 20);
+foreach (['add', 'udp', 'del', 'susp', 'unsp'] as $writeAction) {
+    ok("'{$writeAction}' uses the provisioning budget", $timed->timeoutFor($writeAction) === 180);
+}
+$defaults = new CwpClient(['host' => 'cwp.example.com', 'key' => 'k']);
+ok('provision timeout defaults to 180', $defaults->timeoutFor('add') === 180);
+ok('read timeout defaults to 20', $defaults->timeoutFor('list') === 20);
+
 echo "\nTransport diagnostics (the resolved address must be named)\n";
 
 $refused = null;
@@ -210,6 +221,19 @@ try {
 }
 ok('refusal names the address actually dialled', $refused !== null && strpos($refused->getMessage(), '10.0.0.201') !== false);
 ok('refusal flags an RFC1918 address', $refused !== null && strpos($refused->getMessage(), 'private (RFC1918)') !== false);
+
+// On a timeout the socket opened, so where the name pointed is not the problem.
+$timedOut = null;
+try {
+    invokePrivate($client, 'interpret', [
+        '', 0, 28, 'Operation timed out',
+        array_merge($ctx, ['curl_errno' => 28, 'resolved_ip' => '10.0.0.201']),
+    ]);
+} catch (CwpException $e) {
+    $timedOut = $e;
+}
+ok('timeout still names the address', $timedOut !== null && strpos($timedOut->getMessage(), '10.0.0.201') !== false);
+ok('timeout omits the RFC1918 advice', $timedOut !== null && strpos($timedOut->getMessage(), 'RFC1918') === false);
 
 $public = null;
 try {

@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.0.1
+ * @version 2.0.2
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
@@ -50,8 +50,30 @@ return [
         /** Seconds to establish the connection. */
         'connect_timeout' => 5,
 
-        /** Seconds for the whole request. Some calls run during a page render. */
+        /** Seconds for a read (action=list). Some of these run during a page render. */
         'timeout' => 20,
+
+        /**
+         * Seconds for anything that changes the server: create, suspend, terminate,
+         * package and password changes.
+         *
+         * Creating an account builds a user, home directory, vhost, DNS zone and mail
+         * configuration, which takes far longer than a read. CWP also keeps working after
+         * a client gives up, so too short a budget leaves an account on the server and a
+         * failed service in WHMCS.
+         */
+        'provision_timeout' => 180,
+
+        /**
+         * Apply a package change to CWP when an admin changes a service's
+         * Product/Service and saves, instead of requiring the Change Package button.
+         *
+         * Off by default: reconfiguring a live hosting account because someone corrected
+         * a mis-assigned product record is a surprise. Requires hooks.php, which WHMCS
+         * registers when the module is activated — on an existing install, open any cwp7
+         * product's Module Settings tab and press Save Changes once.
+         */
+        'apply_package_on_service_save' => false,
 
         /**
          * Use the hostname CWP returns in an autologin URL, rather than rewriting it to

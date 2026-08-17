@@ -53,6 +53,21 @@ Optionally copy `config.sample.php` to `config.php` to change TLS policy, ports 
 timeouts. Without it the module runs on the defaults in that file, which suit most
 installations.
 
+### Applying package changes from the dropdown
+
+By default a package reaches CWP when an upgrade order is paid or an admin presses
+**Change Package**; changing the Product/Service dropdown alone only updates the WHMCS
+record. To make the dropdown sufficient, set in `config.php`:
+
+```php
+'apply_package_on_service_save' => true,
+```
+
+WHMCS registers a module's hook file when the module is activated, so on an existing
+install open any CWP product's **Module Settings** tab and press **Save Changes** once for
+`hooks.php` to be picked up. It is off by default because reconfiguring a live hosting
+account as a side effect of correcting a product record is a surprise.
+
 ## Upgrading from the stock module
 
 Replace the directory contents. Nothing else changes:

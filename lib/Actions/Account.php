@@ -6,7 +6,7 @@
  * CwpException on failure; the dispatcher converts that into WHMCS's return contract.
  *
  * @package cwp7
- * @version 2.0.1
+ * @version 2.0.2
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -68,7 +68,10 @@ final class Account
             throw CwpException::config('no domain on the service — CWP cannot create an account without one');
         }
 
-        $this->client->call('account', 'add', [
+        $openFiles = (string) $this->param('configoption3', '100');
+        $processes = (string) $this->param('configoption4', '40');
+
+        $fields = [
             'domain' => $domain,
             // CWP accepts both spellings of the username field on this endpoint.
             'username' => $username,
@@ -77,10 +80,62 @@ final class Account
             'email' => (string) $this->clientEmail(),
             'package' => $this->packageValue(),
             'inode' => (string) $this->param('configoption2', '0'),
-            'nofile' => (string) $this->param('configoption3', '100'),
-            'nproc' => (string) $this->param('configoption4', '40'),
             'server_ips' => (string) $this->param('serverip'),
-        ]);
+
+            // udp documents these as openfiles/processes while the original module used
+            // nofile/nproc for add. Both spellings are sent until add's own contract is
+            // confirmed; CWP ignores fields it does not recognise.
+            'nofile' => $openFiles,
+            'openfiles' => $openFiles,
+            'nproc' => $processes,
+            'processes' => $processes,
+        ];
+
+        try {
+            $this->client->call('account', 'add', $fields);
+        } catch (CwpException $e) {
+            // CWP keeps building after the module gives up, so a timeout is not proof
+            // that nothing happened.
+            if (!$this->createCompletedAfterTimeout($e, $username)) {
+                throw $e;
+            }
+        }
+    }
+
+    /**
+     * Did a creation that timed out actually finish?
+     *
+     * @throws CwpException
+     */
+    private function createCompletedAfterTimeout(CwpException $e, string $username): bool
+    {
+        $context = $e->getContext();
+        $errno = isset($context['curl_errno']) ? (int) $context['curl_errno'] : 0;
+
+        if ($e->getKind() !== CwpException::KIND_TRANSPORT || $errno !== 28) {
+            return false;
+        }
+
+        try {
+            $info = $this->accountInfo($username);
+        } catch (CwpException $ignored) {
+            $info = null;
+        }
+
+        if ($info === null) {
+            return false;
+        }
+
+        if (function_exists('logModuleCall')) {
+            logModuleCall(
+                'cwp7',
+                'CreateAccount completed after timeout',
+                ['user' => $username],
+                'The request timed out but CWP finished building the account.'
+            );
+        }
+
+        return true;
     }
 
     /**
@@ -134,29 +189,94 @@ final class Account
     {
         $username = $this->resolveUsername();
         $package = $this->packageValue();
+        $email = $this->clientEmail();
 
-        $fields = [
-            'user' => $username,
-            'username' => $username,
-            'package' => $package,
-            'inode' => (string) $this->param('configoption2', '0'),
-            'nofile' => (string) $this->param('configoption3', '100'),
-            'nproc' => (string) $this->param('configoption4', '40'),
-        ];
-
-        try {
-            $this->client->call('account', 'udp', $fields);
-
-            return;
-        } catch (CwpException $e) {
-            if ($e->getKind() !== CwpException::KIND_API) {
-                throw $e;
-            }
+        if ($email === '') {
+            throw CwpException::config(
+                'the client has no email address — CWP rejects a package change without one'
+            );
         }
 
-        // Compatibility retry: some CWP builds expect the package suffixed with '@'.
-        $fields['package'] = $package . '@';
-        $this->client->call('account', 'udp', $fields);
+        $this->client->call('account', 'udp', [
+            'user' => $username,
+            'email' => $email,
+            // The '@' prefixes the value: CWP documents "Package name or ID with @ front".
+            'package' => '@' . $package,
+            'inode' => (string) $this->param('configoption2', '0'),
+            // udp names these differently from add.
+            'openfiles' => (string) $this->param('configoption3', '100'),
+            'processes' => (string) $this->param('configoption4', '40'),
+            'server_ips' => (string) $this->param('serverip'),
+        ]);
+
+        $this->assertPackageApplied($package);
+    }
+
+    /**
+     * Confirm CWP actually moved the account onto the requested package.
+     *
+     * `status OK` alone is not evidence: a change that silently fails to apply would
+     * otherwise be reported to the admin as a success.
+     *
+     * @throws CwpException
+     */
+    private function assertPackageApplied(string $requested): void
+    {
+        try {
+            $info = $this->accountInfo($this->resolveUsername());
+        } catch (CwpException $e) {
+            // The change may well have worked; not being able to confirm it is not a
+            // reason to report failure.
+            if (function_exists('logModuleCall')) {
+                logModuleCall('cwp7', 'ChangePackage unverified', $requested, $e->getMessage());
+            }
+
+            return;
+        }
+
+        if ($info === null) {
+            return;
+        }
+
+        $id = isset($info['package_id']) ? trim((string) $info['package_id']) : '';
+        $name = isset($info['package_name']) ? trim((string) $info['package_name']) : '';
+        $wanted = trim($requested);
+
+        // CWP accepts either form, so either matching means the change landed.
+        if (strcasecmp($id, $wanted) === 0 || strcasecmp($name, $wanted) === 0) {
+            return;
+        }
+
+        throw CwpException::api(sprintf(
+            'the package did not change — CWP still reports %s (#%s) after a request for %s',
+            $name !== '' ? $name : 'an unnamed package',
+            $id !== '' ? $id : '?',
+            $wanted
+        ));
+    }
+
+    /**
+     * The account_info block from accountdetail, or null when absent.
+     *
+     * @return array<string,mixed>|null
+     *
+     * @throws CwpException
+     */
+    private function accountInfo(string $username)
+    {
+        $payload = CwpClient::payload(
+            $this->client->call('accountdetail', 'list', ['user' => $username])
+        );
+
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        if (isset($payload['account_info']) && is_array($payload['account_info'])) {
+            return $payload['account_info'];
+        }
+
+        return $payload;
     }
 
     /**

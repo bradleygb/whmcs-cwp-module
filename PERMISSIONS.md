@@ -38,6 +38,10 @@ The permissions grid is per **function** and per **action**. An action left off 
 Email, DNS Cluster or Cluster call, so those permissions add exposure without adding
 function. This key is administrative over every account on the server — keep it narrow.
 
+API Manager also offers **Enable Functions for: WHMCS**, a preset that fills the grid in
+one click. It is quicker, but grants more than the six functions above; the table is the
+least-privilege option.
+
 ## Firewall
 
 Port **2304** must be open from the WHMCS server to CWP:

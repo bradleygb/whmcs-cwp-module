@@ -2,6 +2,42 @@
 
 All notable changes to this module are documented here.
 
+## 2.0.2
+
+### Security
+
+- **The module log no longer records the client's personal data.** WHMCS passes a `model`
+  parameter carrying the service, its product and the full client record; a failed module
+  command wrote the stored service password, the customer's name, postal address, phone
+  number and last-login IP into the WHMCS Module Log. Logging now uses an allow-list of
+  diagnostic fields, so nothing unanticipated is ever written.
+
+### Fixed
+
+- **Package changes were malformed and could not have worked.** CWP documents the package
+  as *"name or ID with @ front"*; the module sent the value bare and then retried with the
+  `@` appended. It also omitted the required `email`, and sent `nofile`/`nproc` where this
+  endpoint expects `openfiles`/`processes`.
+- **A package change is now verified.** `status OK` is not evidence, so the account is
+  re-read afterwards and the operation fails loudly if CWP did not move it.
+- **Account creation no longer times out at 20 seconds.** Reads keep the short budget;
+  anything that changes the server gets `provision_timeout`, 180 seconds by default.
+  Creating an account builds a user, home directory, vhost, DNS zone and mail
+  configuration, and takes far longer than a read.
+- **A creation that times out is reconciled.** CWP keeps working after the module gives
+  up, which previously left an account on the server and a failed service in WHMCS. The
+  account is now re-checked, and a creation that finished late is reported as the success
+  it was.
+- Error messages carry only advice that applies: the API Manager guidance appears solely
+  for `Unauthorized action`, a missing account is stated plainly, and the private-address
+  note no longer appears on a timeout, where the connection had in fact succeeded.
+
+### Added
+
+- `hooks.php` — optionally apply a package change to CWP when an admin changes a
+  service's Product/Service and saves, instead of pressing Change Package afterwards.
+  Off by default; enable `apply_package_on_service_save` in `config.php`.
+
 ## 2.0.1
 
 ### Fixed

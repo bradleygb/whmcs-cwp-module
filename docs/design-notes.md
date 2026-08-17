@@ -80,13 +80,31 @@ being improved on 30 March 2020, so it demonstrably worked. `autologin` is the n
 current API Manager permissions grid uses. Which one a given build exposes is not
 settled, so both are tried and the Module Log records the winner.
 
-**The package `@` suffix.** The original module appended `@` to the package value on
-`account`/`udp` and nothing documents why. `Account::changePackage()` sends the plain
-value first and retries with the suffix only if CWP refuses with an API-level error. Read
-the Module Log after a real upgrade to see which form the server honoured.
+**`account`/`udp` — the confirmed contract.** Read out of Interactive Documentation on
+17 August 2026:
 
-**Package ID or name.** The original sent a numeric ID. The value is passed through
-verbatim, so the product option can hold whichever the server accepts.
+| Field | Notes |
+|---|---|
+| `user` | account username |
+| `email` | **required** — omitting it returns `You must indicate an email` |
+| `package` | *"Package name or ID with @ front. Ex: @12"* — the `@` **prefixes** the value |
+| `inode` | inodes |
+| `openfiles` | open files — `add` calls the same thing `nofile` |
+| `processes` | processes — `add` calls the same thing `nproc` |
+| `backup`, `server_ips`, `debug` | optional |
+
+Errors arrive under `msj`. The original module appended `@` instead of prefixing it,
+omitted `email`, and used the `add` spellings for the two limits, so package changes could
+never have worked — the same shape of latent failure as the usage import.
+
+The separate **Account pack change** entry in the API Manager grid is a *permission*, not
+a different endpoint.
+
+Because `add` and `udp` disagree on those two field names, `create()` sends both
+spellings until `add`'s own contract is read; CWP ignores fields it does not recognise.
+
+**Package ID or name.** The value is passed through verbatim after the `@`, so the product
+option can hold whichever the server accepts.
 
 **Response shapes.** A single result comes back as a bare row on some endpoints and a
 one-element list on others. `CwpClient::rows()` normalises both to a list.

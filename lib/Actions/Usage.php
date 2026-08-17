@@ -3,7 +3,7 @@
  * CWP Hosting Module for WHMCS — disk and bandwidth import.
  *
  * @package cwp7
- * @version 2.0.1
+ * @version 2.0.2
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module

@@ -6,7 +6,7 @@
  * Responses are JSON: {"status":"OK", ...} or {"status":"Error","msg":"..."}.
  *
  * @package cwp7
- * @version 2.0.1
+ * @version 2.0.2
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -61,6 +61,9 @@ final class CwpClient
     /** @var int */
     private $timeout;
 
+    /** @var int */
+    private $provisionTimeout;
+
     /** @var bool */
     private $debug;
 
@@ -102,6 +105,7 @@ final class CwpClient
         $this->verifyTls = (bool) (isset($settings['verify_tls']) ? $settings['verify_tls'] : true);
         $this->connectTimeout = (int) (isset($settings['connect_timeout']) ? $settings['connect_timeout'] : 5);
         $this->timeout = (int) (isset($settings['timeout']) ? $settings['timeout'] : 20);
+        $this->provisionTimeout = (int) (isset($settings['provision_timeout']) ? $settings['provision_timeout'] : 180);
         $this->debug = (bool) (isset($settings['debug']) ? $settings['debug'] : false);
 
         $caBundle = isset($settings['ca_bundle']) ? $settings['ca_bundle'] : null;
@@ -181,7 +185,11 @@ final class CwpClient
         }
 
         $started = microtime(true);
-        list($body, $httpCode, $curlErrno, $curlError, $primaryIp) = $this->execute($url, $post);
+        list($body, $httpCode, $curlErrno, $curlError, $primaryIp) = $this->execute(
+            $url,
+            $post,
+            $this->timeoutFor($action)
+        );
         $elapsedMs = (int) round((microtime(true) - $started) * 1000);
 
         $context = [
@@ -350,13 +358,26 @@ final class CwpClient
     }
 
     /**
+     * How long a given action may run.
+     *
+     * Reads answer in milliseconds. Provisioning does not: creating an account builds a
+     * user, home directory, vhost, DNS zone and mail configuration, and CWP keeps working
+     * after a client gives up — so a short budget produces an account on the server and a
+     * failed service in WHMCS.
+     */
+    public function timeoutFor(string $action): int
+    {
+        return $action === 'list' ? $this->timeout : $this->provisionTimeout;
+    }
+
+    /**
      * @param array<string,scalar> $post
      *
      * @return array{0:string|null, 1:int, 2:int, 3:string, 4:string}
      *
      * @throws CwpException
      */
-    private function execute(string $url, array $post): array
+    private function execute(string $url, array $post, int $timeout): array
     {
         $ch = curl_init();
         if ($ch === false) {
@@ -368,7 +389,7 @@ final class CwpClient
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $this->connectTimeout);
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
 
         // The API key is in the POST body; a redirect could replay it elsewhere.
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
@@ -432,7 +453,11 @@ final class CwpClient
             if ($ip !== '' && $ip !== $this->host) {
                 $detail .= ' — ' . $this->host . ' resolved to ' . $ip;
 
-                if (self::isPrivateIp($ip)) {
+                // Only where the connection itself failed. On a timeout the socket opened,
+                // so where the name pointed is not the problem.
+                $connectFailed = ($curlErrno === 6 || $curlErrno === 7);
+
+                if ($connectFailed && self::isPrivateIp($ip)) {
                     $detail .= ', a private (RFC1918) address. That only works if WHMCS is on '
                         . 'the same network as CWP; otherwise this hostname resolves elsewhere '
                         . 'from the WHMCS server than it does from your workstation';

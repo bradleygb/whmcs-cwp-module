@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.0.1
+ * @version 2.0.2
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,7 +20,7 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.0.1');
+    define('CWP7_MODULE_VERSION', '2.0.2');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';
@@ -91,14 +91,14 @@ function cwp7_ConfigOptions()
             'Description' => '0 for unlimited.',
         ],
         'nofile' => [
-            'FriendlyName' => 'Open File Limit (nofile)',
+            'FriendlyName' => 'Open File Limit',
             'Type' => 'text',
             'Size' => '10',
             'Default' => '100',
             'Description' => 'Maximum open file descriptors.',
         ],
         'nproc' => [
-            'FriendlyName' => 'Process Limit (nproc)',
+            'FriendlyName' => 'Process Limit',
             'Type' => 'text',
             'Size' => '10',
             'Default' => '40',
@@ -598,11 +598,26 @@ function cwp7_perform(string $action, array $params, $work)
 function cwp7_commandError($e)
 {
     $message = $e->getMessage();
+    $context = $e->getContext();
+    $errno = isset($context['curl_errno']) ? (int) $context['curl_errno'] : 0;
 
     if ($e->getKind() === CwpException::KIND_API) {
-        $message .= "\n\nIf that reads \"Unauthorized action\", the API key is missing "
-            . "the function/action pair shown in brackets. Enable it in "
-            . "CWP -> Settings -> API Manager -> edit the key.";
+        if (stripos($message, 'unauthorized') !== false) {
+            return $message . "\n\nThe API key is missing the function/action pair shown in "
+                . "brackets. Enable it in CWP -> Settings -> API Manager -> edit the key.";
+        }
+
+        if (stripos($message, 'valid user') !== false || stripos($message, 'does not exist') !== false) {
+            return $message . "\n\nNo account with that username exists on the server.";
+        }
+
+        return $message;
+    }
+
+    if ($e->getKind() === CwpException::KIND_TRANSPORT && $errno === 28) {
+        return $message . "\n\nCWP was reached but did not reply in time. Account creation "
+            . "can take minutes on a busy server; raise 'provision_timeout' in config.php. "
+            . "Check the server before retrying — CWP may have finished the work anyway.";
     }
 
     return $message;
@@ -632,7 +647,13 @@ function cwp7_logFailure(string $action, array $params, $e)
 }
 
 /**
- * Params with every credential removed, for logging.
+ * The subset of the module parameters that is safe and useful to log.
+ *
+ * An allow-list, not a block-list. WHMCS passes a `model` parameter holding a whole
+ * Eloquent object — the service, its product and the full client record, including the
+ * stored password and the customer's postal address — and WHMCS is free to add more
+ * parameters in future. Naming what may be logged is the only approach that stays
+ * correct as that set grows.
  *
  * @param array<string,mixed> $params
  *
@@ -640,19 +661,25 @@ function cwp7_logFailure(string $action, array $params, $e)
  */
 function cwp7_safeParams(array $params)
 {
-    foreach (['serveraccesshash', 'serverpassword', 'password', 'serverusername'] as $key) {
-        if (isset($params[$key])) {
-            $params[$key] = '***';
+    $allowed = [
+        'serviceid', 'serverid', 'serverhostname', 'serverip', 'serverport',
+        'domain', 'username', 'moduletype', 'action', 'status', 'packageid',
+        'configoption1', 'configoption2', 'configoption3', 'configoption4', 'configoption5',
+    ];
+
+    $safe = [];
+
+    foreach ($allowed as $key) {
+        if (isset($params[$key]) && is_scalar($params[$key])) {
+            $safe[$key] = $params[$key];
         }
     }
 
-    if (isset($params['clientsdetails']) && is_array($params['clientsdetails'])) {
-        $params['clientsdetails'] = [
-            'email' => isset($params['clientsdetails']['email']) ? $params['clientsdetails']['email'] : '',
-        ];
+    if (isset($params['clientsdetails']['email'])) {
+        $safe['clientEmail'] = $params['clientsdetails']['email'];
     }
 
-    return $params;
+    return $safe;
 }
 
 /**

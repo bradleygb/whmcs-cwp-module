@@ -212,12 +212,34 @@ cwp7_UsageUpdate($offline);
 ok('UsageUpdate never throws, even with an unusable server', true);
 ok('UsageUpdate records the failure in the activity log', count($GLOBALS['activityLog']) > 0);
 
-echo "\nCredential masking\n";
-$masked = cwp7_safeParams($params);
-ok('access hash masked', $masked['serveraccesshash'] === '***');
-ok('server password masked', $masked['serverpassword'] === '***');
-ok('service password masked', $masked['password'] === '***');
-ok('clientsdetails reduced to the email', $masked['clientsdetails'] === ['email' => 'a@b.com']);
+echo "\nLog hygiene (allow-list, not block-list)\n";
+
+// WHMCS passes a `model` object carrying the service, its product and the whole client
+// record. v2.0.1 logged it verbatim.
+$withModel = array_merge($params, [
+    'model' => (object) ['password' => 'HASHEDPW', 'client' => ['address1' => '1 Example Street']],
+    'customfields' => ['secret' => 'value'],
+    'somethingNew' => 'not yet invented',
+]);
+$masked = cwp7_safeParams($withModel);
+
+ok('model object is dropped', !isset($masked['model']));
+ok('customfields dropped', !isset($masked['customfields']));
+ok('unanticipated parameters dropped', !isset($masked['somethingNew']));
+ok('access hash dropped', !isset($masked['serveraccesshash']));
+ok('server password dropped', !isset($masked['serverpassword']));
+ok('service password dropped', !isset($masked['password']));
+ok('server username dropped', !isset($masked['serverusername']));
+ok('clientsdetails not carried wholesale', !isset($masked['clientsdetails']));
+ok('client email kept for diagnosis', $masked['clientEmail'] === 'a@b.com');
+ok('diagnostic fields kept', $masked['domain'] === 'example.co.za' && $masked['serverid'] === 3);
+ok('package option kept', $masked['configoption1'] === '5');
+
+$encoded = json_encode($masked);
+foreach (['HASHEDPW', '1 Example Street', 'SUPERSECRETKEY', 'servicepw', 'rootpw'] as $secret) {
+    ok("'{$secret}' never reaches the log", strpos($encoded, $secret) === false);
+}
+
 ok('secrets list carries the real key for redaction', in_array('SUPERSECRETKEY', cwp7_secrets($params), true));
 
 $leaks = 0;
@@ -261,6 +283,19 @@ ok('API refusal points at API Manager', strpos($apiErr, 'API Manager') !== false
 ok('API refusal keeps CWP\'s own text', strpos($apiErr, 'Unauthorized action') !== false);
 $transErr = cwp7_commandError(\Cwp7\CwpException::transport('timed out'));
 ok('a transport failure gets no permissions advice', strpos($transErr, 'API Manager') === false);
+
+// v2.0.1 appended the API Manager advice to every refusal, including these.
+$noUserErr = cwp7_commandError(\Cwp7\CwpException::api('You must indicate a valid user [account/del]'));
+ok('missing account gets no permissions advice', strpos($noUserErr, 'API Manager') === false);
+ok('missing account is explained', strpos($noUserErr, 'No account with that username') !== false);
+
+$dupErr = cwp7_commandError(\Cwp7\CwpException::api('Domain example.com already exists in database! [account/add]'));
+ok('a duplicate domain gets no permissions advice', strpos($dupErr, 'API Manager') === false);
+ok('a duplicate domain keeps CWP\'s wording only', trim($dupErr) === trim($dupErr));
+
+$slowErr = cwp7_commandError(\Cwp7\CwpException::transport('Operation timed out', ['curl_errno' => 28]));
+ok('a timeout names provision_timeout', strpos($slowErr, 'provision_timeout') !== false);
+ok('a timeout warns the work may have completed', strpos($slowErr, 'may have finished') !== false);
 ok('api hint names the IP whitelist', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::api('x')), 'whitelist') !== false);
 ok('config hint names JSON', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::config('x')), 'JSON') !== false);
 
