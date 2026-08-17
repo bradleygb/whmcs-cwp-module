@@ -6,7 +6,7 @@
  * CwpException on failure; the dispatcher converts that into WHMCS's return contract.
  *
  * @package cwp7
- * @version 2.0.2
+ * @version 2.0.3
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -68,6 +68,8 @@ final class Account
             throw CwpException::config('no domain on the service — CWP cannot create an account without one');
         }
 
+        $this->assertPackageExists($this->packageValue());
+
         try {
             $this->client->call('account', 'add', $this->createFields($username, $domain));
         } catch (CwpException $e) {
@@ -104,6 +106,83 @@ final class Account
             'limit_nproc' => (string) $this->param('configoption4', '40'),
             'server_ips' => (string) $this->param('serverip'),
         ];
+    }
+
+    /**
+     * Refuse a package the server does not have, before anything is changed.
+     *
+     * `changepack` answers `status OK` for an ID that does not exist and leaves the
+     * account pointing at nothing, so the post-change check catches it only after the
+     * damage. This catches it first.
+     *
+     * Fails open: the check needs LIST on Packages, and a key without it — or a response
+     * shape this cannot read — must not block package changes that would otherwise work.
+     *
+     * @throws CwpException
+     */
+    private function assertPackageExists(string $package): void
+    {
+        try {
+            $rows = CwpClient::rows($this->client->call('packages', 'list'));
+        } catch (CwpException $e) {
+            return;
+        }
+
+        $known = self::packageIdentifiers($rows);
+
+        if ($known['ids'] === [] && $known['names'] === []) {
+            return;
+        }
+
+        foreach (array_merge($known['ids'], $known['names']) as $candidate) {
+            if (strcasecmp($candidate, $package) === 0) {
+                return;
+            }
+        }
+
+        throw CwpException::config(sprintf(
+            'CWP has no package "%s" on this server. Known IDs: %s. Set the product\'s '
+            . 'CWP Package field to one of these.',
+            $package,
+            $known['ids'] === [] ? '(none reported)' : implode(', ', array_slice($known['ids'], 0, 25))
+        ));
+    }
+
+    /**
+     * The IDs and names CWP reports for its packages.
+     *
+     * Separated from the call so the matching can be tested without a server.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     *
+     * @return array{ids:array<int,string>, names:array<int,string>}
+     */
+    public static function packageIdentifiers(array $rows): array
+    {
+        $ids = [];
+        $names = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            foreach (['id', 'idpackage', 'package_id'] as $key) {
+                if (isset($row[$key]) && $row[$key] !== '') {
+                    $ids[] = trim((string) $row[$key]);
+                    break;
+                }
+            }
+
+            foreach (['package_name', 'name', 'package'] as $key) {
+                if (isset($row[$key]) && $row[$key] !== '') {
+                    $names[] = trim((string) $row[$key]);
+                    break;
+                }
+            }
+        }
+
+        return ['ids' => $ids, 'names' => $names];
     }
 
     /**
@@ -267,6 +346,8 @@ final class Account
     {
         $username = $this->resolveUsername();
         $package = $this->packageValue();
+
+        $this->assertPackageExists($package);
 
         // The dedicated endpoint for this one operation, gated by the narrow
         // "Account pack change" permission.

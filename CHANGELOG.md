@@ -2,6 +2,19 @@
 
 All notable changes to this module are documented here.
 
+## 2.0.3
+
+### Fixed
+
+- **An unknown package ID no longer leaves an account with no package.** CWP's
+  `changepack` answers `status OK` for an ID that does not exist, silently detaching the
+  account from any package. The requested ID is now checked against the server's package
+  list before anything changes, and a mismatch is refused with the valid IDs listed.
+  Applies to account creation as well.
+
+  The check needs `Packages`/`list` and fails open without it, so it never blocks a
+  package change that would otherwise succeed.
+
 ## 2.0.2
 
 ### Security

@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.0.2
+ * @version 2.0.3
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,7 +20,7 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.0.2');
+    define('CWP7_MODULE_VERSION', '2.0.3');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';

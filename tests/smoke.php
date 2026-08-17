@@ -504,6 +504,27 @@ ok('udp: email included (CWP requires it)', $udp['email'] === 'owner@example.com
 ok('udp: no limit_nofile/limit_nproc (those are add names)',
     !isset($udp['limit_nofile']) && !isset($udp['limit_nproc']));
 
+echo "\nPackage existence check\n";
+
+// changepack answers OK for an ID that does not exist and leaves the account with no
+// package, so the requested ID is checked against the server's list first.
+$packageRows = [
+    ['id' => '2', 'package_name' => 'Regular'],
+    ['id' => '3', 'package_name' => 'Linux Medium Web Hosting'],
+    ['id' => '8', 'package_name' => 'Large Web Hosting'],
+];
+$known = Account::packageIdentifiers($packageRows);
+ok('ids collected', $known['ids'] === ['2', '3', '8']);
+ok('names collected', $known['names'][1] === 'Linux Medium Web Hosting');
+
+$alt = Account::packageIdentifiers([['idpackage' => 9, 'name' => 'Mail'], ['package_id' => 4]]);
+ok('alternate id keys are accepted', $alt['ids'] === ['9', '4']);
+ok('alternate name keys are accepted', $alt['names'] === ['Mail']);
+
+$unknown = Account::packageIdentifiers([['something' => 'else'], 'not an array']);
+ok('an unreadable shape yields nothing, so the check can fail open',
+    $unknown['ids'] === [] && $unknown['names'] === []);
+
 $noEmail = new Account(makeClient(), array_merge($serviceParams, ['clientsdetails' => []]));
 throwsKind(
     'udp without a client email is refused before the call',

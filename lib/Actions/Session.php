@@ -6,7 +6,7 @@
  * page render, and the returned URL is constrained to the configured host.
  *
  * @package cwp7
- * @version 2.0.2
+ * @version 2.0.3
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
