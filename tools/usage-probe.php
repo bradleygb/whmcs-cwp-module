@@ -86,6 +86,44 @@ if ($host === '' || $key === '') {
     exit(1);
 }
 
+/**
+ * Sanity-check the key's shape before spending a request on it.
+ *
+ * CWP answers a malformed key with "No special characters are allowed!", which says
+ * nothing about what was wrong. A pasted key picks up whitespace, line breaks or a
+ * second copy of itself often enough to be worth catching here.
+ *
+ * Reports shape only — never the key.
+ *
+ * @return array<int,string> Problems found, worst first.
+ */
+function inspectKey(string $key): array
+{
+    $problems = [];
+    $length = strlen($key);
+
+    if (preg_match('/\s/', $key)) {
+        $problems[] = 'contains whitespace or a line break — the paste picked up more than the key';
+    }
+
+    $stripped = preg_replace('/[A-Za-z0-9]/', '', $key);
+    if (is_string($stripped) && $stripped !== '') {
+        $problems[] = sprintf(
+            'contains %d character(s) outside A-Z a-z 0-9 — CWP keys are alphanumeric',
+            strlen($stripped)
+        );
+    }
+
+    if ($length > 0 && $length % 2 === 0) {
+        $half = intdiv($length, 2);
+        if (substr($key, 0, $half) === substr($key, $half)) {
+            $problems[] = 'the first half is identical to the second — it was pasted twice';
+        }
+    }
+
+    return $problems;
+}
+
 /** Rough unit guess from magnitude. The panel comparison is what actually decides. */
 function guessUnit(array $values): string
 {
@@ -114,6 +152,17 @@ function guessUnit(array $values): string
     return 'looks like GB (values are small)';
 }
 
+$keyProblems = inspectKey($key);
+
+if ($keyProblems !== []) {
+    echo "\nThe API key does not look right (" . strlen($key) . " characters):\n\n";
+    foreach ($keyProblems as $problem) {
+        echo "  - " . $problem . "\n";
+    }
+    echo "\nRe-copy it from CWP -> Settings -> API Manager and try again.\n\n";
+    exit(1);
+}
+
 try {
     $client = new CwpClient([
         'host' => $host,
@@ -123,7 +172,15 @@ try {
 
     $rows = CwpClient::rows($client->call('account', 'list'));
 } catch (CwpException $e) {
-    echo "\nFailed: " . $e->getMessage() . "\n\n";
+    echo "\nFailed: " . $e->getMessage() . "\n";
+
+    if (strpos($e->getMessage(), 'special characters') !== false) {
+        echo "\nThat message comes from CWP's own validation of the key. This one is "
+            . strlen($key) . " characters\nand alphanumeric, so compare it against the key "
+            . "shown in API Manager.\n";
+    }
+
+    echo "\n";
     exit(1);
 }
 
