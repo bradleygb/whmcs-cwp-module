@@ -194,6 +194,14 @@ ok('TestConnection failure carries a troubleshooting hint', strpos($r['error'], 
 $r = cwp7_AdminServicesTabFields($offline);
 ok('AdminServicesTabFields degrades to a label', isset($r['CWP Account']) && is_string($r['CWP Account']));
 
+// A terminated service has no account to describe, so it must not call CWP at all.
+$before = count($GLOBALS['moduleLog']);
+$r = cwp7_AdminServicesTabFields(array_merge($params, ['status' => 'Terminated']));
+ok('terminated service reports plainly', strpos($r['CWP Account'], 'No CWP account is expected') !== false);
+ok('terminated service opens no socket', count($GLOBALS['moduleLog']) === $before);
+$r = cwp7_AdminServicesTabFields(array_merge($params, ['status' => 'Cancelled']));
+ok('cancelled service reports plainly', strpos($r['CWP Account'], 'No CWP account is expected') !== false);
+
 $sso = cwp7_ServiceSingleSignOn($noUser);
 ok('SSO failure returns success=false', $sso['success'] === false);
 ok('SSO error is the client-safe message', strpos($sso['errorMsg'], 'contact support') !== false);

@@ -396,9 +396,23 @@ function cwp7_ClientArea(array $params)
  */
 function cwp7_AdminServicesTabFields(array $params)
 {
+    // A terminated service has no account to describe, so the call would fail every
+    // time this page is opened.
+    $status = strtolower(trim((string) (isset($params['status']) ? $params['status'] : '')));
+
+    if (in_array($status, ['terminated', 'cancelled', 'canceled', 'fraud'], true)) {
+        return ['CWP Account' => '<em>Service is ' . htmlspecialchars($status, ENT_QUOTES, 'UTF-8')
+            . '. No CWP account is expected.</em>'];
+    }
+
     try {
         $detail = Account::fromParams($params)->detail();
     } catch (CwpException $e) {
+        // A missing account is an ordinary state, not a fault worth a red banner.
+        if (stripos($e->getMessage(), 'does not exist') !== false) {
+            return ['CWP Account' => '<em>No account with this username exists on the server.</em>'];
+        }
+
         return ['CWP Account' => '<span class="label label-danger">'
             . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') . '</span>'];
     } catch (\Throwable $e) {

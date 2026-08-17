@@ -19,6 +19,12 @@ All notable changes to this module are documented here.
   negative limit previously rendered as a negative usage bar.
 - Usage rows are matched to services by primary key rather than by a domain query, so a
   domain shared by two services can no longer have both rewritten.
+- **Terminated, cancelled and fraud services no longer trigger API calls.** The admin
+  service page called CWP on every view for a service whose account no longer exists,
+  showing a rejection banner each time; usage import likewise treated dead services as
+  candidates, letting one shadow a live service that reused the same domain.
+- A missing account now reads as a plain statement rather than an error banner — that is
+  an ordinary state, not a fault.
 
 ### Added
 

@@ -126,10 +126,15 @@ final class Usage
         ];
     }
 
+    /** Service states with no account on the server, so nothing to import. */
+    const DEAD_STATUSES = ['Terminated', 'Cancelled', 'Fraud'];
+
     /**
      * Services on this server, indexed by domain and by username.
      *
-     * One query, so matching an account costs nothing per row.
+     * One query, so matching an account costs nothing per row. Terminated and cancelled
+     * services are excluded: their account is gone, and leaving them in would let a dead
+     * service shadow a live one that reuses the same domain.
      *
      * @return array{domain:array<string,int>, username:array<string,int>}
      */
@@ -139,6 +144,7 @@ final class Usage
 
         $rows = \WHMCS\Database\Capsule::table('tblhosting')
             ->where('server', $serverId)
+            ->whereNotIn('domainstatus', self::DEAD_STATUSES)
             ->get(['id', 'domain', 'username']);
 
         foreach ($rows as $row) {
