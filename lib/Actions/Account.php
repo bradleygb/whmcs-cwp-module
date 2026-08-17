@@ -107,6 +107,49 @@ final class Account
     }
 
     /**
+     * The POST fields for `changepack`/`udp` — the dedicated package-change endpoint.
+     *
+     * `package` is the bare ID here. The `@` prefix belongs to `account`/`udp`, which is
+     * a different call: a full account update rather than a package change.
+     *
+     * @return array<string,string>
+     *
+     * @throws CwpException
+     */
+    public function changePackFields(string $username): array
+    {
+        return [
+            'user' => $username,
+            'package' => $this->packageValue(),
+        ];
+    }
+
+    /**
+     * Apply the product's inode, open-file and process limits.
+     *
+     * Best effort. These ride on `account`/`udp`, which is a broader grant than the
+     * package change itself — CWP checks it as `accout_upd`, separate from the
+     * "Account pack change" permission. A key without it still gets the package moved,
+     * which is the part that matters.
+     */
+    private function applyResourceLimits(string $username): void
+    {
+        try {
+            $this->client->call('account', 'udp', $this->packageFields($username));
+        } catch (CwpException $e) {
+            if (function_exists('logModuleCall')) {
+                logModuleCall(
+                    'cwp7',
+                    'resource limits not applied',
+                    ['user' => $username],
+                    $e->getMessage() . ' — the package changed, but inode/openfiles/processes '
+                    . 'need UPD on the Account function.'
+                );
+            }
+        }
+    }
+
+    /**
      * The POST fields for `account`/`udp`, per Interactive Documentation.
      *
      * The `@` prefixes the package value here — CWP documents "Package name or ID with @
@@ -223,9 +266,14 @@ final class Account
     public function changePackage(): void
     {
         $username = $this->resolveUsername();
+        $package = $this->packageValue();
 
-        $this->client->call('account', 'udp', $this->packageFields($username));
-        $this->assertPackageApplied($this->packageValue());
+        // The dedicated endpoint for this one operation, gated by the narrow
+        // "Account pack change" permission.
+        $this->client->call('changepack', 'udp', $this->changePackFields($username));
+
+        $this->applyResourceLimits($username);
+        $this->assertPackageApplied($package);
     }
 
     /**

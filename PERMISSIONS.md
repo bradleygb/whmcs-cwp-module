@@ -27,12 +27,17 @@ The permissions grid is per **function** and per **action**. An action left off 
 
 | Function | Actions | Needed for |
 |---|---|---|
-| Account | `add`, `upd`, `del`, **`list`**, `susp`, `unsp` | The provisioning lifecycle. `list` also drives usage import and Server Sync. |
-| Account Details | `list` | Account detail on the admin service page. |
+| Account | `add`, `del`, **`list`**, `susp`, `unsp` | The provisioning lifecycle. `list` also drives usage import and Server Sync. |
+| Account Details | `list` | Account detail on the admin service page, and verifying a package change applied. |
 | Account pack change | `upd` | Package changes on upgrade/downgrade. |
 | Change of password | `upd` | Password changes. |
 | Autologin | `list` | Single sign-on to the control panel. |
 | Type Server | `list` | Optional. Test Connection's first probe; it falls back to `Account`/`list`. |
+| Account | `upd` | Optional. Applies the product's inode, open-file and process limits when a package changes. Without it the package still moves; only those three limits are skipped. |
+
+`Account`/`upd` is deliberately listed as optional. It is a full account update — CWP
+checks it as `accout_upd`, separately from "Account pack change" — so a key that changes
+packages does not have to carry it.
 
 **Grant nothing else.** In particular the module makes no AutoSSL, Packages, MySQL, FTP,
 Email, DNS Cluster or Cluster call, so those permissions add exposure without adding

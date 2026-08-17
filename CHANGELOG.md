@@ -20,9 +20,14 @@ All notable changes to this module are documented here.
   created by earlier versions therefore carries its CWP package defaults rather than the
   product's open-file and process limits. **Run Change Package on existing services** to
   apply them.
-- **Package changes were malformed and could not have worked.** CWP documents the package
-  as *"name or ID with @ front"*; the module sent the value bare and then retried with the
-  `@` appended. It also omitted the required `email`.
+- **Package changes used the wrong endpoint entirely.** CWP has a dedicated
+  `/v1/changepack` for this, gated by the narrow "Account pack change" permission. The
+  module posted to `/v1/account` with `action=udp` — a full account update, checked as a
+  broader grant — and with the package suffixed `12@` where that endpoint documents a
+  `@12` prefix. Package changes now go to `changepack`, which takes the bare ID.
+- **`Account`/`upd` is no longer required.** The product's inode, open-file and process
+  limits are applied through it after the package moves, but a refusal is non-fatal, so a
+  key holding only "Account pack change" changes packages successfully.
 - **A package change is now verified.** `status OK` is not evidence, so the account is
   re-read afterwards and the operation fails loudly if CWP did not move it.
 - **Account creation no longer times out at 20 seconds.** Reads keep the short budget;

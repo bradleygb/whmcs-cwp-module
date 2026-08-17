@@ -80,6 +80,31 @@ being improved on 30 March 2020, so it demonstrably worked. `autologin` is the n
 current API Manager permissions grid uses. Which one a given build exposes is not
 settled, so both are tried and the Module Log records the winner.
 
+**`changepack`/`udp` — how a package is actually changed.**
+
+```
+POST /v1/changepack
+key, action=udp, user, package   (package = bare ID, no @), debug
+```
+
+This is the dedicated endpoint, gated by the narrow **Account pack change** permission.
+It is what `ChangePackage` calls.
+
+`account`/`udp` is a *different* operation — a full account update — checked as
+`accout_upd`, a broader grant. The module uses it only to apply the product's inode,
+open-file and process limits after the package has moved, and treats a refusal as
+non-fatal so a key holding just the narrow permission still works.
+
+**Three endpoints, three package formats**, which is the trap:
+
+| Endpoint | `package` |
+|---|---|
+| `account`/`add` | bare ID |
+| `account`/`udp` | `@` **prefix** — `@12` |
+| `changepack`/`udp` | bare ID |
+
+The original module sent `12@` to `account`/`udp`: wrong end, wrong endpoint.
+
 **`account`/`udp` — the confirmed contract.** Read out of Interactive Documentation on
 17 August 2026:
 

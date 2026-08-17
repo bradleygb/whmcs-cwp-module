@@ -491,6 +491,11 @@ ok('add: email included', $add['email'] === 'owner@example.com');
 ok('add: no nofile/nproc (neither endpoint accepts them)', !isset($add['nofile']) && !isset($add['nproc']));
 ok('add: no openfiles/processes (those are udp names)', !isset($add['openfiles']) && !isset($add['processes']));
 
+// Three endpoints, three package formats. changepack takes the bare ID.
+$pack = $account->changePackFields('demo');
+ok('changepack: package is the bare ID, no @', $pack['package'] === '10');
+ok('changepack: sends only user and package', array_keys($pack) === ['user', 'package']);
+
 $udp = $account->packageFields('demo');
 ok('udp: openfiles carries the open-file limit', $udp['openfiles'] === '150');
 ok('udp: processes carries the process limit', $udp['processes'] === '40');
