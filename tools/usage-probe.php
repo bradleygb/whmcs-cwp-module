@@ -108,10 +108,36 @@ function inspectKey(string $key): array
 
     $stripped = preg_replace('/[A-Za-z0-9]/', '', $key);
     if (is_string($stripped) && $stripped !== '') {
+        // Show the distinct offenders escaped. CWP keys are alphanumeric, so anything
+        // listed here came from the paste rather than the key, and naming it usually
+        // identifies the cause outright.
+        $distinct = count_chars($stripped, 3);
+        $shown = '';
+        for ($i = 0, $len = strlen($distinct); $i < $len; $i++) {
+            $c = $distinct[$i];
+            $shown .= (ord($c) < 32 || ord($c) > 126)
+                ? sprintf('\x%02X', ord($c))
+                : $c;
+        }
+
         $problems[] = sprintf(
-            'contains %d character(s) outside A-Z a-z 0-9 — CWP keys are alphanumeric',
-            strlen($stripped)
+            'contains %d character(s) outside A-Z a-z 0-9 — CWP keys are alphanumeric. Found: %s',
+            strlen($stripped),
+            $shown
         );
+
+        if (strpos($distinct, "\x1b") !== false) {
+            $problems[] = 'includes escape characters (\x1B) — the terminal sent bracketed-paste '
+                . 'markers into the variable. Disable it first: printf \'\\e[?2004l\'';
+        }
+
+        if (strpos($distinct, ':') !== false && strpos($distinct, '/') !== false) {
+            $problems[] = 'looks like a URL rather than a bare key';
+        }
+
+        if (strpos($distinct, '{') !== false || strpos($distinct, '"') !== false) {
+            $problems[] = 'looks like JSON rather than a bare key';
+        }
     }
 
     if ($length > 0 && $length % 2 === 0) {
