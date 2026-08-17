@@ -157,9 +157,6 @@ controls.
 
 - **AutoSSL is not triggered by this module.** CWP issues and renews those certificates
   on its own schedule, so the API key needs no AutoSSL permission.
-- **WHMCS's own "No SSL Detected" indicator is unrelated to this module.** WHMCS checks
-  the service domain over HTTPS from the WHMCS server, independently of any server
-  module.
 - The module makes no API call while rendering the client area, so an unreachable panel
   cannot stall a customer's page.
 - **Disk usage costs one extra API call per service, once a day.** CWP's account list
