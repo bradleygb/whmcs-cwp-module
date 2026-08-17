@@ -407,25 +407,94 @@ function cwp7_AdminServicesTabFields(array $params)
         return ['CWP Account' => '<em>Unavailable.</em>'];
     }
 
-    $fields = [];
+    // accountdetail nests the figures under account_info; older shapes are flat.
+    $info = (isset($detail['account_info']) && is_array($detail['account_info']))
+        ? $detail['account_info']
+        : $detail;
+
     $lines = [];
 
-    foreach (['domain', 'username', 'user', 'package', 'ip_address', 'setup_date', 'status'] as $key) {
-        if (isset($detail[$key]) && is_scalar($detail[$key]) && (string) $detail[$key] !== '') {
-            $lines[] = '<strong>' . htmlspecialchars($key, ENT_QUOTES, 'UTF-8') . ':</strong> '
-                . htmlspecialchars((string) $detail[$key], ENT_QUOTES, 'UTF-8');
+    $domain = '';
+    if (isset($detail['domains'][0]['domain'])) {
+        $domain = (string) $detail['domains'][0]['domain'];
+    } elseif (isset($detail['domain'])) {
+        $domain = (string) $detail['domain'];
+    }
+
+    if ($domain !== '') {
+        $lines[] = '<strong>Domain:</strong> ' . htmlspecialchars($domain, ENT_QUOTES, 'UTF-8');
+    }
+
+    $package = (string) Usage::pick($info, ['package_name', 'package', 'plan']);
+    if ($package !== '') {
+        $id = (string) Usage::pick($info, ['package_id']);
+        $lines[] = '<strong>Package:</strong> ' . htmlspecialchars($package, ENT_QUOTES, 'UTF-8')
+            . ($id !== '' ? ' (#' . htmlspecialchars($id, ENT_QUOTES, 'UTF-8') . ')' : '');
+    }
+
+    foreach (['state' => 'State', 'directory' => 'Home', 'email' => 'Contact', 'ip_address' => 'IP'] as $key => $label) {
+        $value = (string) Usage::pick($info, [$key]);
+        if ($value !== '') {
+            $lines[] = '<strong>' . $label . ':</strong> ' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
         }
     }
 
+    $fields = [];
     $fields['CWP Account'] = $lines === [] ? '<em>No detail returned.</em>' : implode('<br>', $lines);
 
-    foreach (['subdomains' => 'Subdomains', 'databases' => 'Databases', 'database_users' => 'Database Users'] as $key => $label) {
-        if (isset($detail[$key]) && is_array($detail[$key])) {
-            $fields[$label] = (string) count($detail[$key]);
+    $diskUsed = Usage::pick($info, Usage::FIELD_CANDIDATES['diskusage']);
+    $diskLimit = Usage::pick($info, Usage::FIELD_CANDIDATES['disklimit']);
+    if ($diskUsed !== null || $diskLimit !== null) {
+        $fields['Disk'] = cwp7_formatUsage($diskUsed, $diskLimit);
+    }
+
+    $bwUsed = Usage::pick($info, ['bandwidth_used', 'bwusage', 'bw_used']);
+    $bwLimit = Usage::pick($info, ['bwlimit', 'bandwidth_limit', 'bandwidth']);
+    if ($bwUsed !== null || $bwLimit !== null) {
+        $fields['Bandwidth'] = cwp7_formatUsage($bwUsed, $bwLimit);
+    }
+
+    // CWP spells this key "subdomins" on accountdetail; accept both.
+    $counts = [
+        'Domains' => ['domains'],
+        'Subdomains' => ['subdomains', 'subdomins'],
+        'Databases' => ['databases'],
+    ];
+
+    foreach ($counts as $label => $keys) {
+        foreach ($keys as $key) {
+            if (isset($detail[$key]) && is_array($detail[$key])) {
+                $fields[$label] = (string) count($detail[$key]);
+                break;
+            }
         }
     }
 
     return $fields;
+}
+
+/**
+ * Render "used of limit" in megabytes, treating CWP's -1 as unlimited.
+ *
+ * @param mixed $used
+ * @param mixed $limit
+ *
+ * @return string
+ */
+function cwp7_formatUsage($used, $limit)
+{
+    $usedMb = $used === null ? null : Usage::numeric($used);
+    $rawLimit = $limit === null ? null : (float) Usage::numeric($limit);
+    $unlimited = ($limit !== null && (float) $limit < 0);
+
+    $parts = [];
+    $parts[] = $usedMb === null ? '?' : number_format($usedMb, 0) . ' MB';
+    $parts[] = 'of';
+    $parts[] = $unlimited || $rawLimit === null || $rawLimit == 0.0
+        ? 'unlimited'
+        : number_format($rawLimit, 0) . ' MB';
+
+    return htmlspecialchars(implode(' ', $parts), ENT_QUOTES, 'UTF-8');
 }
 
 // ---------------------------------------------------------------------------

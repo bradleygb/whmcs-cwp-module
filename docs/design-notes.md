@@ -30,11 +30,34 @@ a mistake fails a test rather than a customer's account.
 
 ## CWP API quirks
 
-**`msg` vs `msj`.** The original module read `msj` (Spanish *mensaje*) and community
-libraries agree. Current Interactive Documentation shows `msg`, and CWP 0.9.8.1170
-(September 2023) changed response fields on "some endpoints". `CwpClient::MESSAGE_KEYS`
-accepts both. The cost is one array lookup and it removes a class of silent breakage
-across CWP upgrades.
+**`result` vs `msg` vs `msj`.** The original module read `msj` (Spanish *mensaje*) and
+community libraries agree. Current builds return **success payloads under `result`** and
+errors under `msg` — confirmed against CWP on 17 August 2026 by reading an
+`accountdetail/list` response in the WHMCS Module Log. CWP 0.9.8.1170 (September 2023)
+is the release that changed response fields on "some endpoints".
+
+`CwpClient::MESSAGE_KEYS` is ordered `result`, `msg`, `msj`. Errors carry no `result`, so
+putting it first is safe. Missing this cost real function: `payload()` returned null for
+every current-build response, so `rows()` returned an empty list, and both `UsageUpdate`
+and `ListAccounts` silently saw zero accounts.
+
+**`accountdetail` is nested, and misspells one key.** The payload is
+`result.account_info.*` for the figures and `result.domains[0].domain` for the domain.
+Subdomains arrive under **`subdomins`** — CWP's own typo — so both spellings are
+accepted.
+
+**Usage units are megabytes**, confirmed from the same response:
+`space_usage + space_available = space_disk` exactly, and a package advertised as
+"Large Web Hosting" reports `space_disk => 10000`. That is what WHMCS stores, so no
+conversion is applied.
+
+**CWP uses `-1` for unlimited.** WHMCS reads `0` that way, and a negative limit renders
+as a negative bar, so `Usage::numeric()` clamps negatives to zero.
+
+**`bandwidth` means different things on different endpoints.** On `account/list` it is
+bandwidth consumed; on `accountdetail` it is the limit. The specific names
+(`bandwidth_used`, `bwusage`) are checked first and the ambiguous one is only ever a
+fallback.
 
 **Autologin endpoint.** `Session::ENDPOINTS` tries `user_session` then `autologin`. The
 original module used `user_session` in production, and CWP's changelog records that path

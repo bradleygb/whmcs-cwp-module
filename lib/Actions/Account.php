@@ -172,9 +172,9 @@ final class Account
             'user' => $this->resolveUsername(),
         ]);
 
-        $rows = CwpClient::rows($response);
+        $payload = CwpClient::payload($response);
 
-        return $rows === [] ? $response : $rows[0];
+        return is_array($payload) ? $payload : $response;
     }
 
     /**

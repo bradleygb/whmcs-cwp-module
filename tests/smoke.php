@@ -317,9 +317,30 @@ ok('status is matched case-insensitively', $lowerOk['x'] === 1);
 
 echo "\nPayload extraction (msg / msj)\n";
 
-ok('payload prefers msg', CwpClient::payload(['msg' => 'a', 'msj' => 'b']) === 'a');
+ok('payload prefers result', CwpClient::payload(['result' => 'r', 'msg' => 'a', 'msj' => 'b']) === 'r');
+ok('payload falls back to msg', CwpClient::payload(['msg' => 'a', 'msj' => 'b']) === 'a');
 ok('payload falls back to msj', CwpClient::payload(['msj' => 'b']) === 'b');
 ok('payload absent -> null', CwpClient::payload(['status' => 'OK']) === null);
+
+// Current CWP builds return data under `result`; missing this key silently emptied
+// UsageUpdate and ListAccounts.
+$accountDetail = [
+    'status' => 'OK',
+    'result' => [
+        'domains' => [['domain' => 'example.com']],
+        'account_info' => [
+            'package_name' => 'Regular',
+            'space_usage' => 480715.59765625,
+            'space_disk' => 700000,
+            'bandwidth' => -1,
+            'bandwidth_used' => 2477,
+            'state' => 'active',
+        ],
+    ],
+];
+$unwrapped = CwpClient::payload($accountDetail);
+ok('result payload is unwrapped', is_array($unwrapped) && isset($unwrapped['account_info']));
+ok('nested account_info survives', $unwrapped['account_info']['package_name'] === 'Regular');
 
 $rows = CwpClient::rows(['msj' => [['user' => 'bob'], ['user' => 'sue']]]);
 ok('rows returns a list', count($rows) === 2 && $rows[1]['user'] === 'sue');
@@ -407,6 +428,10 @@ $numericCases = [
     ['unlimited', 0.0],
     [2048, 2048.0],
     [null, 0.0],
+    // CWP uses -1 for unlimited; WHMCS reads 0 that way.
+    [-1, 0.0],
+    ['-1', 0.0],
+    [480715.59765625, 480715.59765625],
 ];
 
 foreach ($numericCases as $case) {

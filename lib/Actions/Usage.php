@@ -18,11 +18,17 @@ use Cwp7\CwpException;
 
 final class Usage
 {
-    /** Response keys CWP has used for each figure, in lookup order. */
+    /**
+     * Response keys CWP has used for each figure, in lookup order. All are megabytes.
+     *
+     * `bandwidth` is last in the usage list on purpose: account/list uses it for
+     * bandwidth consumed, but accountdetail uses the same name for the limit. The
+     * specific names are checked first so the ambiguous one is only a fallback.
+     */
     const FIELD_CANDIDATES = [
-        'diskusage' => ['diskusage', 'disk_used', 'disk_usage', 'used_disk'],
-        'disklimit' => ['disklimit', 'disk_limit', 'disk_quota', 'quota'],
-        'bwusage' => ['bandwidth', 'bwusage', 'bw_used', 'bandwidth_used'],
+        'diskusage' => ['diskusage', 'space_usage', 'disk_used', 'disk_usage', 'used_disk'],
+        'disklimit' => ['disklimit', 'space_disk', 'disk_limit', 'disk_quota', 'quota'],
+        'bwusage' => ['bwusage', 'bandwidth_used', 'bw_used', 'bandwidth'],
         'bwlimit' => ['bwlimit', 'bw_limit', 'bandwidth_limit'],
     ];
 
@@ -121,15 +127,18 @@ final class Usage
     }
 
     /**
-     * Coerce a CWP figure into a number WHMCS can store. Values pass through in the
-     * units CWP reports them in; no conversion is applied.
+     * Coerce a CWP figure into a number WHMCS can store.
+     *
+     * CWP reports these in megabytes, which is what WHMCS stores, so no conversion is
+     * applied. CWP uses -1 for "unlimited"; WHMCS reads 0 that way, and a negative
+     * limit would otherwise render as a negative bar.
      *
      * @param mixed $value
      */
     public static function numeric($value): float
     {
         if (is_int($value) || is_float($value)) {
-            return (float) $value;
+            return $value < 0 ? 0.0 : (float) $value;
         }
 
         $clean = preg_replace('/[^0-9.\-]/', '', (string) $value);
@@ -138,6 +147,6 @@ final class Usage
             return 0.0;
         }
 
-        return (float) $clean;
+        return (float) $clean < 0 ? 0.0 : (float) $clean;
     }
 }

@@ -32,8 +32,13 @@ final class CwpClient
      */
     const TLS_VERIFY_ERRORS = [51, 60, 77, 83];
 
-    /** CWP has used both spellings for the message/payload key. */
-    const MESSAGE_KEYS = ['msg', 'msj'];
+    /**
+     * Keys CWP has used to carry a response payload, in lookup order.
+     *
+     * Current builds return data under `result` and errors under `msg`. Older builds
+     * used `msj` for both.
+     */
+    const MESSAGE_KEYS = ['result', 'msg', 'msj'];
 
     /** @var string */
     private $host;
