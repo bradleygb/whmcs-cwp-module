@@ -68,6 +68,11 @@ install open any CWP product's **Module Settings** tab and press **Save Changes*
 `hooks.php` to be picked up. It is off by default because reconfiguring a live hosting
 account as a side effect of correcting a product record is a surprise.
 
+While it is on, the **Change Package** button is hidden on CWP services, since the
+dropdown now does the same job. The button is only hidden, never removed — a paid
+upgrade or downgrade order calls the same code, and dropping it would bill a customer for
+a package the server never applies. Turn the setting off and the button returns.
+
 ## Upgrading from the stock module
 
 Replace the directory contents. Nothing else changes:

@@ -77,6 +77,58 @@ function cwp7_hookEnabled()
 }
 
 /**
+ * Should the Change Package button be hidden on this page?
+ *
+ * Separated from the hook so the decision is testable.
+ *
+ * @param string $page       WHMCS's filename for the current admin page
+ * @param string $serverType The module the viewed service uses
+ */
+function cwp7_hookShouldHideButton($page, $serverType)
+{
+    // Tolerant of an unexpected or absent filename: only bail when we positively know
+    // this is some other page.
+    if ($page !== '' && $page !== 'clientsservices') {
+        return false;
+    }
+
+    return $serverType === 'cwp7';
+}
+
+/**
+ * Hide WHMCS's Change Package button once the dropdown does the same job.
+ *
+ * The button is hidden rather than removed: WHMCS draws it because
+ * cwp7_ChangePackage() exists, and that function must stay — a paid upgrade or
+ * downgrade order calls it, and dropping it would bill a customer for a package the
+ * server never applies.
+ *
+ * Gated on the setting, so turning the dropdown behaviour off brings the button back and
+ * never leaves a service with no way to change its package. If a future WHMCS release
+ * renames the element, the rule simply stops matching and the button reappears.
+ */
+add_hook('AdminAreaFooterOutput', 1, function ($vars) {
+    if (!cwp7_hookEnabled()) {
+        return '';
+    }
+
+    $page = isset($vars['filename']) ? (string) $vars['filename'] : '';
+    $serviceId = isset($_REQUEST['id']) ? (int) $_REQUEST['id'] : 0;
+
+    if ($serviceId <= 0) {
+        return '';
+    }
+
+    $service = cwp7_hookServiceSnapshot($serviceId);
+
+    if ($service === null || !cwp7_hookShouldHideButton($page, $service['servertype'])) {
+        return '';
+    }
+
+    return '<style>#btnChange_Package{display:none !important;}</style>';
+});
+
+/**
  * Remember which product the service was on before the save.
  */
 add_hook('PreServiceEdit', 1, function ($vars) {

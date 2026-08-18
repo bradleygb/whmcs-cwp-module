@@ -15,6 +15,14 @@ All notable changes to this module are documented here.
   The check needs `Packages`/`list` and fails open without it, so it never blocks a
   package change that would otherwise succeed.
 
+### Changed
+
+- **The Change Package button is hidden while `apply_package_on_service_save` is on**,
+  since the Product/Service dropdown then does the same job. Hidden, not removed: WHMCS
+  draws the button because `cwp7_ChangePackage` exists, and that function must stay —
+  a paid upgrade or downgrade order calls it, and dropping it would bill a customer for a
+  package the server never applies. Turning the setting off brings the button back.
+
 ## 2.0.2
 
 ### Security

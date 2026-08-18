@@ -263,6 +263,30 @@ ok('unix timestamp', cwp7_normaliseDate('1709287200') === date('Y-m-d H:i:s', 17
 ok('empty date', cwp7_normaliseDate('') === '');
 ok('unparseable date', cwp7_normaliseDate('not a date') === '');
 
+echo "\nHook gating\n";
+
+// hooks.php registers against WHMCS; stub the registrar so the helpers can be loaded.
+$GLOBALS['registeredHooks'] = [];
+if (!function_exists('add_hook')) {
+    function add_hook($name, $priority, $callback = null)
+    {
+        $GLOBALS['registeredHooks'][] = $name;
+    }
+}
+require_once CWP7_DIR . '/hooks.php';
+
+ok('PreServiceEdit registered', in_array('PreServiceEdit', $GLOBALS['registeredHooks'], true));
+ok('ServiceEdit registered', in_array('ServiceEdit', $GLOBALS['registeredHooks'], true));
+ok('AdminAreaFooterOutput registered', in_array('AdminAreaFooterOutput', $GLOBALS['registeredHooks'], true));
+
+ok('hides on the service page for a cwp7 service', cwp7_hookShouldHideButton('clientsservices', 'cwp7'));
+ok('leaves other modules alone', !cwp7_hookShouldHideButton('clientsservices', 'cpanel'));
+ok('leaves other admin pages alone', !cwp7_hookShouldHideButton('clientssummary', 'cwp7'));
+ok('tolerates an unknown page name', cwp7_hookShouldHideButton('', 'cwp7'));
+
+// Off unless config.php opts in, so a fresh install keeps the button.
+ok('disabled without config.php', cwp7_hookEnabled() === false);
+
 echo "\nTroubleshooting hints\n";
 ok('transport hint names port 2304', strpos(cwp7_troubleshootingHint(\Cwp7\CwpException::transport('x')), '2304') !== false);
 
