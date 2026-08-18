@@ -36,6 +36,15 @@ final class Usage
     const DETAIL_DISK_KEYS = ['space_usage', 'diskusage', 'disk_used'];
 
     /**
+     * Consecutive fruitless detail lookups before the rest of the run skips them.
+     *
+     * This runs in the daily cron, one extra call per service. If CWP stops answering,
+     * each of those costs the full read timeout — 200 services would hold the cron open
+     * for over an hour. Limits and bandwidth still import from the single list call.
+     */
+    const MAX_DETAIL_FAILURES = 3;
+
+    /**
      * Pull the account roster and write the figures onto matching services.
      *
      * account/list supplies limits and bandwidth. Disk usage comes from accountdetail,
@@ -65,6 +74,7 @@ final class Usage
         $updated = 0;
         $skipped = 0;
         $detailCalls = 0;
+        $detailFailures = 0;
 
         foreach ($rows as $row) {
             $seen++;
@@ -82,12 +92,22 @@ final class Usage
 
             $diskUsage = self::numeric(self::pick($row, self::FIELD_CANDIDATES['diskusage']));
 
-            if ($useDetail && $username !== '') {
+            if ($useDetail && $username !== '' && $detailFailures < self::MAX_DETAIL_FAILURES) {
                 $detailCalls++;
                 $accurate = self::detailDiskUsage($client, $username);
 
                 if ($accurate !== null) {
                     $diskUsage = $accurate;
+                    $detailFailures = 0;
+                } elseif (++$detailFailures >= self::MAX_DETAIL_FAILURES && function_exists('logModuleCall')) {
+                    // Stop paying the timeout on every remaining service.
+                    logModuleCall(
+                        'cwp7',
+                        'UsageUpdate detail lookups abandoned',
+                        ['server' => $serverId, 'after' => $detailCalls],
+                        self::MAX_DETAIL_FAILURES . ' consecutive detail lookups returned nothing; '
+                        . 'the rest of this run uses the account list only.'
+                    );
                 }
             }
 

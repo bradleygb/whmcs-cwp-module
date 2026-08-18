@@ -65,15 +65,27 @@ function cwp7_hookServiceSnapshot($serviceId)
     ];
 }
 
-/** Is the feature switched on for this server's configuration? */
+/**
+ * Is the feature switched on for this server's configuration?
+ *
+ * Cached: these hooks run on every admin page load, and re-reading the file each time
+ * would be three stat-and-include cycles per request for a value that cannot change
+ * mid-request.
+ */
 function cwp7_hookEnabled()
 {
-    $path = __DIR__ . '/config.php';
-    $config = is_readable($path) ? require $path : [];
+    static $enabled = null;
 
-    return is_array($config)
-        && isset($config['defaults']['apply_package_on_service_save'])
-        && $config['defaults']['apply_package_on_service_save'] === true;
+    if ($enabled === null) {
+        $path = __DIR__ . '/config.php';
+        $config = is_readable($path) ? require $path : [];
+
+        $enabled = is_array($config)
+            && isset($config['defaults']['apply_package_on_service_save'])
+            && $config['defaults']['apply_package_on_service_save'] === true;
+    }
+
+    return $enabled;
 }
 
 /**
