@@ -14,7 +14,7 @@
  * this file to be picked up.
  *
  * @package cwp7
- * @version 2.0.3
+ * @version 2.1.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -26,6 +26,8 @@ if (!defined('WHMCS')) {
 
 require_once __DIR__ . '/lib/CwpException.php';
 require_once __DIR__ . '/lib/CwpClient.php';
+require_once __DIR__ . '/lib/Actions/Account.php';
+require_once __DIR__ . '/lib/Actions/Package.php';
 
 /** Service states whose CWP account is gone, so a package change is meaningless. */
 const CWP7_HOOK_DEAD_STATUSES = ['Terminated', 'Cancelled', 'Fraud'];
@@ -86,6 +88,95 @@ function cwp7_hookEnabled()
     }
 
     return $enabled;
+}
+
+/** Is package pushing switched on? Cached for the same reason as cwp7_hookEnabled(). */
+function cwp7_hookPushPackagesEnabled()
+{
+    static $enabled = null;
+
+    if ($enabled === null) {
+        $path = __DIR__ . '/config.php';
+        $config = is_readable($path) ? require $path : [];
+
+        $enabled = is_array($config)
+            && isset($config['defaults']['push_packages_on_product_save'])
+            && $config['defaults']['push_packages_on_product_save'] === true;
+    }
+
+    return $enabled;
+}
+
+/**
+ * Every CWP server a product could provision onto.
+ *
+ * A product targets a server group, so a package has to exist on each member — CWP
+ * assigns its own local id per server, which is why the package name is the key rather
+ * than an id.
+ *
+ * @return array<int,array{id:int,hostname:string,ip:string,port:int,accesshash:string}>
+ */
+function cwp7_hookCwpServers($groupId)
+{
+    if (!class_exists('\WHMCS\Database\Capsule')) {
+        return [];
+    }
+
+    try {
+        $query = \WHMCS\Database\Capsule::table('tblservers')
+            ->where('tblservers.type', 'cwp7')
+            ->where('tblservers.disabled', 0);
+
+        // Group 0 means the product names no group, so every CWP server is a candidate.
+        if ((int) $groupId > 0) {
+            $query->join('tblservergroupsrel', 'tblservergroupsrel.serverid', '=', 'tblservers.id')
+                ->where('tblservergroupsrel.groupid', (int) $groupId);
+        }
+
+        $rows = $query->get([
+            'tblservers.id',
+            'tblservers.hostname',
+            'tblservers.ipaddress',
+            'tblservers.port',
+            'tblservers.accesshash',
+        ]);
+    } catch (\Exception $e) {
+        return [];
+    }
+
+    $servers = [];
+
+    foreach ($rows as $row) {
+        $row = (array) $row;
+
+        $servers[] = [
+            'id' => (int) $row['id'],
+            'hostname' => (string) $row['hostname'],
+            'ip' => (string) $row['ipaddress'],
+            'port' => (int) $row['port'],
+            'accesshash' => (string) $row['accesshash'],
+        ];
+    }
+
+    return $servers;
+}
+
+/**
+ * A server's API key, decrypted.
+ *
+ * tblservers.accesshash is stored encrypted; WHMCS decrypts it into module parameters,
+ * but a hook reading the table gets ciphertext. DecryptPassword is the supported way
+ * back.
+ */
+function cwp7_hookServerKey($accessHash)
+{
+    if ($accessHash === '' || !function_exists('localAPI')) {
+        return '';
+    }
+
+    $result = localAPI('DecryptPassword', ['password2' => $accessHash]);
+
+    return isset($result['password']) ? (string) $result['password'] : '';
 }
 
 /**
@@ -204,5 +295,71 @@ add_hook('ServiceEdit', 1, function ($vars) {
             isset($result['result']) ? $result['result'] : 'no result',
             isset($result['message']) ? $result['message'] : ''
         );
+    }
+});
+
+/**
+ * Push a product's package definition to every CWP server it can provision onto.
+ *
+ * Saves creating the same package by hand on each server. The CWP Package field on the
+ * product is the package name — CWP's update endpoint identifies packages by name, and a
+ * name is the only identifier that stays stable across servers, since each assigns its
+ * own local id.
+ *
+ * Opt-in via 'push_packages_on_product_save'. Enabling it makes WHMCS the source of
+ * truth: a package edited in CWP is overwritten on the next product save.
+ */
+add_hook('ProductEdit', 1, function ($vars) {
+    if (!cwp7_hookPushPackagesEnabled()) {
+        return;
+    }
+
+    if (!isset($vars['servertype']) || $vars['servertype'] !== 'cwp7') {
+        return;
+    }
+
+    $name = isset($vars['configoption1']) ? trim((string) $vars['configoption1']) : '';
+
+    try {
+        $definition = \Cwp7\Actions\Package::definition($name, $vars);
+    } catch (\Cwp7\CwpException $e) {
+        // A product with no package name or no disk quota simply is not ready to push.
+        if (function_exists('logModuleCall')) {
+            logModuleCall('cwp7', 'package push skipped', ['product' => $name], $e->getMessage());
+        }
+
+        return;
+    }
+
+    $servers = cwp7_hookCwpServers(isset($vars['servergroup']) ? (int) $vars['servergroup'] : 0);
+
+    foreach ($servers as $server) {
+        $outcome = 'failed';
+        $detail = '';
+
+        try {
+            $client = \Cwp7\CwpClient::fromParams([
+                'serverhostname' => $server['hostname'],
+                'serverip' => $server['ip'],
+                'serverport' => $server['port'],
+                'serveraccesshash' => cwp7_hookServerKey($server['accesshash']),
+            ]);
+
+            $outcome = \Cwp7\Actions\Package::push($client, $definition);
+        } catch (\Cwp7\CwpException $e) {
+            $detail = $e->getMessage();
+        } catch (\Throwable $e) {
+            $detail = $e->getMessage();
+        }
+
+        // One unreachable server must not stop the others.
+        if (function_exists('logModuleCall')) {
+            logModuleCall(
+                'cwp7',
+                'package ' . $outcome,
+                ['server' => $server['id'], 'host' => $server['hostname'], 'package' => $name],
+                $detail === '' ? $definition : $detail
+            );
+        }
     }
 });

@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.0.3
+ * @version 2.1.0
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
@@ -74,6 +74,23 @@ return [
          * product's Module Settings tab and press Save Changes once.
          */
         'apply_package_on_service_save' => false,
+
+        /**
+         * Create or update the CWP package when a product is saved, on every CWP server
+         * in that product's server group.
+         *
+         * Saves building the same package by hand on each server. The product's CWP
+         * Package field is the package name — CWP's update endpoint identifies packages
+         * by name, and each server assigns its own local id, so a name is the only
+         * identifier that stays stable across a group.
+         *
+         * Off by default, and enabling it is a decision about ownership: WHMCS becomes
+         * the source of truth, and a package edited in CWP is overwritten the next time
+         * its product is saved.
+         *
+         * Requires ADD and UPD on Packages in addition to LIST.
+         */
+        'push_packages_on_product_save' => false,
 
         /**
          * Use the hostname CWP returns in an autologin URL, rather than rewriting it to

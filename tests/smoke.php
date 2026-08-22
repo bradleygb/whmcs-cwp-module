@@ -23,10 +23,12 @@ if (PHP_SAPI !== 'cli') {
 require_once __DIR__ . '/../lib/CwpException.php';
 require_once __DIR__ . '/../lib/CwpClient.php';
 require_once __DIR__ . '/../lib/Actions/Account.php';
+require_once __DIR__ . '/../lib/Actions/Package.php';
 require_once __DIR__ . '/../lib/Actions/Session.php';
 require_once __DIR__ . '/../lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
+use Cwp7\Actions\Package;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
 use Cwp7\CwpClient;
@@ -503,6 +505,49 @@ ok('udp: package is @-prefixed, not suffixed', $udp['package'] === '@10');
 ok('udp: email included (CWP requires it)', $udp['email'] === 'owner@example.com');
 ok('udp: no limit_nofile/limit_nproc (those are add names)',
     !isset($udp['limit_nofile']) && !isset($udp['limit_nproc']));
+
+echo "\nPackage definitions pushed to CWP\n";
+
+$productOptions = [
+    'configoption1' => 'Small Web Hosting',
+    'configoption6' => '5000',   // disk_quota
+    'configoption7' => '5000',   // bandwidth
+    'configoption8' => '2',      // ftp_accounts
+    'configoption9' => '500',    // email_accounts
+    'configoption11' => '25',    // databases
+    'configoption12' => '2',     // sub_domains
+];
+$definition = Package::definition('Small Web Hosting', $productOptions);
+
+ok('name carried through', $definition['package_name'] === 'Small Web Hosting');
+ok('disk_quota mapped from slot 6', $definition['disk_quota'] === '5000');
+ok('bandwidth mapped from slot 7', $definition['bandwidth'] === '5000');
+ok('databases mapped from slot 11', $definition['databases'] === '25');
+// An absent limit keeps CWP's default; sending 0 would mean none allowed.
+ok('blank options are omitted, not zeroed',
+    !isset($definition['email_lists']) && !isset($definition['parked_domains']));
+
+throwsKind(
+    'a package with no disk quota is refused',
+    function () { Package::definition('No Disk', ['configoption1' => 'No Disk']); },
+    CwpException::KIND_CONFIG
+);
+throwsKind(
+    'a package with no name is refused',
+    function () use ($productOptions) { Package::definition('   ', $productOptions); },
+    CwpException::KIND_CONFIG
+);
+
+// push() decides create-vs-update from the package list, not from CWP's error text.
+$serverPackages = [
+    ['id' => '2', 'package_name' => 'Regular'],
+    ['id' => '3', 'package_name' => 'Linux Medium Web Hosting'],
+];
+ok('an existing package is recognised', Package::has($serverPackages, 'Regular'));
+ok('matching ignores case', Package::has($serverPackages, 'regular'));
+ok('surrounding space is ignored', Package::has($serverPackages, '  Regular  '));
+ok('an absent package is not claimed', !Package::has($serverPackages, 'Small Web Hosting'));
+ok('an empty server list is not claimed', !Package::has([], 'Regular'));
 
 echo "\nPackage existence check\n";
 

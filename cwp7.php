@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.0.3
+ * @version 2.1.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,12 +20,13 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.0.3');
+    define('CWP7_MODULE_VERSION', '2.1.0');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';
 require_once __DIR__ . '/lib/CwpClient.php';
 require_once __DIR__ . '/lib/Actions/Account.php';
+require_once __DIR__ . '/lib/Actions/Package.php';
 require_once __DIR__ . '/lib/Actions/Session.php';
 require_once __DIR__ . '/lib/Actions/Usage.php';
 
@@ -110,6 +111,62 @@ function cwp7_ConfigOptions()
             'Size' => '5',
             'Default' => '8',
             'Description' => 'Applied to new accounts only. Set 0 to send the username unchanged.',
+        ],
+
+        // Slots 6-15 describe the CWP package itself, and are only read when package
+        // pushing is enabled in config.php. Left blank, each limit keeps CWP's own
+        // default; set to 0 it means none allowed.
+        'diskquota' => [
+            'FriendlyName' => 'Disk Quota (MB)',
+            'Type' => 'text',
+            'Size' => '10',
+            'Description' => 'Required to push this product to CWP as a package.',
+        ],
+        'bandwidth' => [
+            'FriendlyName' => 'Bandwidth (MB)',
+            'Type' => 'text',
+            'Size' => '10',
+            'Description' => 'Monthly transfer allowance.',
+        ],
+        'ftpaccounts' => [
+            'FriendlyName' => 'FTP Accounts',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'emailaccounts' => [
+            'FriendlyName' => 'Email Accounts',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'emaillists' => [
+            'FriendlyName' => 'Email Lists',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'databases' => [
+            'FriendlyName' => 'Databases',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'subdomains' => [
+            'FriendlyName' => 'Sub Domains',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'parkeddomains' => [
+            'FriendlyName' => 'Parked Domains',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'addondomains' => [
+            'FriendlyName' => 'Addon Domains',
+            'Type' => 'text',
+            'Size' => '10',
+        ],
+        'hourlyemails' => [
+            'FriendlyName' => 'Hourly Email Limit',
+            'Type' => 'text',
+            'Size' => '10',
         ],
     ];
 }

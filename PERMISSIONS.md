@@ -35,6 +35,7 @@ The permissions grid is per **function** and per **action**. An action left off 
 | Type Server | `list` | Optional. Test Connection's first probe; it falls back to `Account`/`list`. |
 | Account | `upd` | Optional. Applies the product's inode, open-file and process limits when a package changes. Without it the package still moves; only those three limits are skipped. |
 | Packages | `list` | Optional but recommended. Lets the module reject an unknown package ID before it changes anything — `changepack` answers OK for an ID that does not exist and leaves the account with no package at all. |
+| Packages | `add`, `upd` | Only if `push_packages_on_product_save` is enabled, which creates and updates CWP packages from WHMCS products. |
 
 `Account`/`upd` is deliberately listed as optional. It is a full account update — CWP
 checks it as `accout_upd`, separately from "Account pack change" — so a key that changes

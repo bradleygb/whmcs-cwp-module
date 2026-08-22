@@ -53,6 +53,26 @@ Optionally copy `config.sample.php` to `config.php` to change TLS policy, ports 
 timeouts. Without it the module runs on the defaults in that file, which suit most
 installations.
 
+### Creating CWP packages from WHMCS products
+
+Rather than building the same package by hand on every server, the module can push it.
+Fill in the package limits on the product's **Module Settings** tab — disk quota is
+required, the rest are optional — and set in `config.php`:
+
+```php
+'push_packages_on_product_save' => true,
+```
+
+Saving the product then creates the package on **every CWP server in that product's
+server group**, or updates it if one of that name already exists. The **CWP Package**
+field is the package name: CWP's update endpoint identifies packages by name, and each
+server assigns its own local id, so a name is the only identifier stable across a group.
+
+A limit left blank keeps CWP's own default. Set it to `0` to mean none allowed.
+
+This makes WHMCS the source of truth — a package edited in CWP is overwritten the next
+time its product is saved. Needs `ADD` and `UPD` on `Packages`.
+
 ### Applying package changes from the dropdown
 
 By default a package reaches CWP when an upgrade order is paid or an admin presses

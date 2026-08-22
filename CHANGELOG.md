@@ -2,6 +2,26 @@
 
 All notable changes to this module are documented here.
 
+## 2.1.0
+
+### Added
+
+- **Products can create their CWP packages.** Ten new product options describe the
+  package — disk quota, bandwidth, and the FTP, email, email-list, database, subdomain,
+  parked-domain, addon-domain and hourly-email limits. Saving the product creates the
+  package on **every CWP server in that product's server group**, or updates it if one of
+  that name already exists. No more building the same package by hand on each server.
+
+  The product's **CWP Package** field is the package name. CWP's update endpoint
+  identifies packages by name and each server assigns its own local id, so a name is the
+  only identifier that stays stable across a group.
+
+  Off by default — `push_packages_on_product_save` in `config.php`. Enabling it decides
+  ownership: WHMCS becomes the source of truth, and a package edited in CWP is
+  overwritten the next time its product is saved. Needs `ADD` and `UPD` on `Packages`.
+
+  A limit left blank keeps CWP's own default; set it to `0` to mean none allowed.
+
 ## 2.0.3
 
 ### Fixed

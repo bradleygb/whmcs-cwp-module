@@ -119,12 +119,29 @@ ok('ListAccounts product field is configoption1', $meta['ListAccountsProductFiel
 echo "\nConfigOptions slot ordering (FROZEN — live products store values by position)\n";
 $opts = cwp7_ConfigOptions();
 $keys = array_keys($opts);
-ok('5 options', count($opts) === 5);
+ok('15 options', count($opts) === 15);
+
+// Slots 1-4 come from the 2020 module and can never move; 5 was added in 2.0.0.
 ok('slot 1 is the package', $keys[0] === 'package');
 ok('slot 2 is inode', $keys[1] === 'inode');
 ok('slot 3 is nofile', $keys[2] === 'nofile');
 ok('slot 4 is nproc', $keys[3] === 'nproc');
-ok('slot 5 is usernamelength (added after 2020)', $keys[4] === 'usernamelength');
+ok('slot 5 is usernamelength', $keys[4] === 'usernamelength');
+
+// 6-15 are the CWP package definition. Package::FIELD_SLOTS maps CWP field names onto
+// these positions, so the two must agree or a pushed package carries the wrong limits.
+$packageOrder = ['diskquota', 'bandwidth', 'ftpaccounts', 'emailaccounts', 'emaillists',
+                 'databases', 'subdomains', 'parkeddomains', 'addondomains', 'hourlyemails'];
+foreach ($packageOrder as $i => $expectedKey) {
+    ok('slot ' . ($i + 6) . ' is ' . $expectedKey, $keys[$i + 5] === $expectedKey);
+}
+
+$slots = \Cwp7\Actions\Package::FIELD_SLOTS;
+ok('FIELD_SLOTS covers every package option', count($slots) === count($packageOrder));
+ok('disk_quota maps to slot 6', $slots['disk_quota'] === 6);
+ok('hourly_emails maps to slot 15', $slots['hourly_emails'] === 15);
+ok('every mapped slot is within the declared options',
+    max($slots) <= count($opts) && min($slots) === 6);
 $allFriendly = true;
 foreach ($opts as $o) {
     if (empty($o['FriendlyName'])) {

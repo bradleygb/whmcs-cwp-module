@@ -13,7 +13,7 @@
  * Delete this file when finished. Its output reveals internal addressing.
  *
  * @package cwp7
- * @version 2.0.3
+ * @version 2.1.0
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
