@@ -296,6 +296,16 @@ ok('PreServiceEdit registered', in_array('PreServiceEdit', $GLOBALS['registeredH
 ok('ServiceEdit registered', in_array('ServiceEdit', $GLOBALS['registeredHooks'], true));
 ok('AdminAreaFooterOutput registered', in_array('AdminAreaFooterOutput', $GLOBALS['registeredHooks'], true));
 
+// tblservers.accesshash is not encrypted on every install. Decrypting a plaintext key
+// does not fail — it returns noise, which CWP rejects as "No special characters".
+ok('an alphanumeric key is used as stored',
+    cwp7_hookServerKey('Kxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+    === 'Kxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+ok('surrounding whitespace is trimmed', cwp7_hookServerKey("  abc123  ") === 'abc123');
+ok('an empty hash yields nothing', cwp7_hookServerKey('') === '');
+// Anything non-alphanumeric is ciphertext, and without localAPI there is no way back.
+ok('a non-alphanumeric hash is not passed through', cwp7_hookServerKey('a+b/c=') === '');
+
 ok('hides on the service page for a cwp7 service', cwp7_hookShouldHideButton('clientsservices', 'cwp7'));
 ok('leaves other modules alone', !cwp7_hookShouldHideButton('clientsservices', 'cpanel'));
 ok('leaves other admin pages alone', !cwp7_hookShouldHideButton('clientssummary', 'cwp7'));

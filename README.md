@@ -68,6 +68,10 @@ server group**, or updates it if one of that name already exists. The **CWP Pack
 field is the package name: CWP's update endpoint identifies packages by name, and each
 server assigns its own local id, so a name is the only identifier stable across a group.
 
+Leave that field **blank** and the product's own name is used, so there is nothing to
+type. Set it explicitly only when a server's package names differ from your product
+names.
+
 A limit left blank keeps CWP's own default. Set it to `0` to mean none allowed.
 
 This makes WHMCS the source of truth — a package edited in CWP is overwritten the next

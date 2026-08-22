@@ -558,13 +558,51 @@ final class Account
     {
         $package = trim((string) $this->param('configoption1'));
 
-        if ($package === '') {
-            throw CwpException::config(
-                'no CWP package set on this product — set it in Products/Services -> Module Settings'
-            );
+        if ($package !== '') {
+            return $package;
         }
 
-        return $package;
+        // Blank means "named after the product", matching what package pushing creates.
+        $product = $this->productName();
+
+        if ($product !== '') {
+            return $product;
+        }
+
+        throw CwpException::config(
+            'no CWP package set on this product — set it in Products/Services -> Module Settings'
+        );
+    }
+
+    /**
+     * The WHMCS product's name, used as the package name when none is set explicitly.
+     *
+     * Read from tblproducts rather than from $params['model'], whose shape is not part
+     * of the module API.
+     */
+    private function productName(): string
+    {
+        $productId = (int) $this->param('packageid', $this->param('pid', 0));
+
+        if ($productId <= 0 || !class_exists('\WHMCS\Database\Capsule')) {
+            return '';
+        }
+
+        try {
+            $row = \WHMCS\Database\Capsule::table('tblproducts')
+                ->where('id', $productId)
+                ->first(['name']);
+        } catch (\Exception $e) {
+            return '';
+        }
+
+        if ($row === null) {
+            return '';
+        }
+
+        $row = (array) $row;
+
+        return trim((string) $row['name']);
     }
 
     private function clientEmail(): string

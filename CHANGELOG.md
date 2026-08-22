@@ -22,6 +22,18 @@ All notable changes to this module are documented here.
 
   A limit left blank keeps CWP's own default; set it to `0` to mean none allowed.
 
+- **The CWP Package field may be left blank**, in which case the product's own name is
+  used — both when pushing the package and when provisioning against it. Setting it
+  explicitly still overrides, for servers whose package names differ from your product
+  names.
+
+### Fixed
+
+- **`tblservers.accesshash` is not encrypted on every install.** Where it holds the API
+  key verbatim, running it through `DecryptPassword` does not fail — it reports success
+  and returns binary noise, which CWP rejects as "No special characters are allowed!".
+  A stored value that already looks like a key is now used as-is.
+
 ## 2.0.3
 
 ### Fixed

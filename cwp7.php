@@ -82,7 +82,8 @@ function cwp7_ConfigOptions()
             'Type' => 'text',
             'Size' => '25',
             'Default' => '1',
-            'Description' => 'Package ID (or name) exactly as it exists in CWP.',
+            'Description' => 'Package ID or name exactly as it exists in CWP. '
+                . 'Leave blank to use this product\'s name.',
         ],
         'inode' => [
             'FriendlyName' => 'Inode Limit',

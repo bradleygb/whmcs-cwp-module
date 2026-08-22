@@ -162,15 +162,28 @@ function cwp7_hookCwpServers($groupId)
 }
 
 /**
- * A server's API key, decrypted.
+ * A server's API key as stored in tblservers.accesshash.
  *
- * tblservers.accesshash is stored encrypted; WHMCS decrypts it into module parameters,
- * but a hook reading the table gets ciphertext. DecryptPassword is the supported way
- * back.
+ * WHMCS does not encrypt this field on every install. Where it holds the key verbatim,
+ * running it through DecryptPassword does not fail — it "succeeds" and returns binary
+ * noise, which CWP then rejects as "No special characters are allowed!".
+ *
+ * CWP keys are alphanumeric, so a value that already looks like one is used as-is and
+ * only anything else is decrypted.
  */
 function cwp7_hookServerKey($accessHash)
 {
-    if ($accessHash === '' || !function_exists('localAPI')) {
+    $accessHash = trim((string) $accessHash);
+
+    if ($accessHash === '') {
+        return '';
+    }
+
+    if (preg_match('/^[A-Za-z0-9]+$/', $accessHash) === 1) {
+        return $accessHash;
+    }
+
+    if (!function_exists('localAPI')) {
         return '';
     }
 
@@ -318,7 +331,13 @@ add_hook('ProductEdit', 1, function ($vars) {
         return;
     }
 
+    // Blank means "name it after the product" — with pushing enabled WHMCS owns the
+    // package name, so there is nothing to be gained from typing it twice.
     $name = isset($vars['configoption1']) ? trim((string) $vars['configoption1']) : '';
+
+    if ($name === '' && isset($vars['name'])) {
+        $name = trim((string) $vars['name']);
+    }
 
     try {
         $definition = \Cwp7\Actions\Package::definition($name, $vars);
