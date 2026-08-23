@@ -24,11 +24,13 @@ require_once __DIR__ . '/../lib/CwpException.php';
 require_once __DIR__ . '/../lib/CwpClient.php';
 require_once __DIR__ . '/../lib/Actions/Account.php';
 require_once __DIR__ . '/../lib/Actions/Package.php';
+require_once __DIR__ . '/../lib/Actions/PanelApp.php';
 require_once __DIR__ . '/../lib/Actions/Session.php';
 require_once __DIR__ . '/../lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
 use Cwp7\Actions\Package;
+use Cwp7\Actions\PanelApp;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
 use Cwp7\CwpClient;
@@ -469,6 +471,45 @@ ok('cleartext is upgraded to https', strpos($cleartext, 'https://') === 0);
 $trusting = new Session($client, 'bob', true);
 $kept = invokePrivate($trusting, 'constrainToConfiguredHost', ['https://cwp-real.example.com:2083/l?t=1']);
 ok('trust_returned_host keeps CWP\'s host', $kept === 'https://cwp-real.example.com:2083/l?t=1');
+
+echo "\nPanel shortcuts (an allow-list, because the key comes from the request)\n";
+
+ok('a known shortcut resolves to its CWP module', PanelApp::moduleFor('phpmyadmin') === 'pma');
+ok('resolution ignores case and space', PanelApp::moduleFor('  MySQL  ') === 'mysql_manager');
+ok('an unknown key resolves to nothing, so SSO lands on the dashboard',
+    PanelApp::moduleFor('nonsense') === '');
+ok('an empty key resolves to nothing', PanelApp::moduleFor('') === '');
+// The key arrives from $_REQUEST, so anything not on the list must be refused rather
+// than passed through to the panel.
+ok('a path cannot be smuggled through the key', PanelApp::moduleFor('../../etc/passwd') === '');
+ok('a URL cannot be smuggled through the key', PanelApp::moduleFor('https://evil.example.com/') === '');
+
+$tiles = PanelApp::all();
+ok('every app is offered as a tile', count($tiles) === count(PanelApp::APPS));
+$wellFormed = true;
+foreach ($tiles as $tile) {
+    if ($tile['key'] === '' || $tile['label'] === '' || $tile['icon'] === ''
+        || PanelApp::moduleFor($tile['key']) === ''
+    ) {
+        $wellFormed = false;
+    }
+}
+ok('every tile has a key that resolves, a label and an icon', $wellFormed);
+
+// CWP's own menu links to modules as a relative ?module=NAME, so adding a parameter
+// keeps whichever part of the URL carries the session.
+ok('a module is appended to a URL with no query',
+    Session::withModule('https://cwp.example.com:2083/cwp_TOKEN/bob/', 'pma')
+        === 'https://cwp.example.com:2083/cwp_TOKEN/bob/?module=pma');
+ok('a module is appended to a URL that already has a query',
+    Session::withModule('https://cwp.example.com:2083/l?t=1', 'backups')
+        === 'https://cwp.example.com:2083/l?t=1&module=backups');
+ok('no module leaves the URL untouched',
+    Session::withModule('https://cwp.example.com:2083/l?t=1', '')
+        === 'https://cwp.example.com:2083/l?t=1');
+ok('a fragment stays at the end',
+    Session::withModule('https://cwp.example.com:2083/l#top', 'domains')
+        === 'https://cwp.example.com:2083/l?module=domains#top');
 
 echo "\nCWP field contracts (add and udp disagree; both differ from the 2020 module)\n";
 

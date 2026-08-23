@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.1.1
+ * @version 2.2.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,17 +20,19 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.1.1');
+    define('CWP7_MODULE_VERSION', '2.2.0');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';
 require_once __DIR__ . '/lib/CwpClient.php';
 require_once __DIR__ . '/lib/Actions/Account.php';
 require_once __DIR__ . '/lib/Actions/Package.php';
+require_once __DIR__ . '/lib/Actions/PanelApp.php';
 require_once __DIR__ . '/lib/Actions/Session.php';
 require_once __DIR__ . '/lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
+use Cwp7\Actions\PanelApp;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
 use Cwp7\CwpClient;
@@ -394,7 +396,12 @@ function cwp7_ServiceSingleSignOn(array $params)
             (bool) $client->getOption('autologin_trust_returned_host', false)
         );
 
-        return ['success' => true, 'redirectTo' => $session->url()];
+        // The shortcut the customer clicked, if any. Resolved through the allow-list,
+        // so an unknown or forged value opens the dashboard rather than an arbitrary
+        // panel URL.
+        $requested = isset($_REQUEST['cwpapp']) ? (string) $_REQUEST['cwpapp'] : '';
+
+        return ['success' => true, 'redirectTo' => $session->url(PanelApp::moduleFor($requested))];
     } catch (CwpException $e) {
         cwp7_logFailure('ServiceSingleSignOn', $params, $e);
 
@@ -430,6 +437,10 @@ function cwp7_ClientArea(array $params)
         $panelUrl = '';
     }
 
+    $ssoUrl = $serviceId > 0
+        ? 'clientarea.php?action=productdetails&id=' . $serviceId . '&dosinglesignon=1'
+        : '';
+
     return [
         'tabOverviewModuleOutputTemplate' => 'templates/overview',
         'templateVariables' => [
@@ -437,11 +448,33 @@ function cwp7_ClientArea(array $params)
             'username' => isset($params['username']) ? (string) $params['username'] : '',
             'domain' => isset($params['domain']) ? (string) $params['domain'] : '',
             'serverHostname' => isset($params['serverhostname']) ? (string) $params['serverhostname'] : '',
-            'ssoUrl' => $serviceId > 0
-                ? 'clientarea.php?action=productdetails&id=' . $serviceId . '&dosinglesignon=1'
-                : '',
+            'ssoUrl' => $ssoUrl,
+            'apps' => $ssoUrl === '' ? [] : cwp7_panelShortcuts($ssoUrl),
         ],
     ];
+}
+
+/**
+ * The panel shortcuts shown in the client area, each pointing at single sign-on.
+ *
+ * Every link goes through WHMCS single sign-on rather than the panel directly, so no
+ * session is minted until one is clicked and none is written into the page.
+ *
+ * @return array<int,array{label:string, icon:string, url:string}>
+ */
+function cwp7_panelShortcuts(string $ssoUrl)
+{
+    $shortcuts = [];
+
+    foreach (PanelApp::all() as $app) {
+        $shortcuts[] = [
+            'label' => $app['label'],
+            'icon' => $app['icon'],
+            'url' => $ssoUrl . '&cwpapp=' . rawurlencode($app['key']),
+        ];
+    }
+
+    return $shortcuts;
 }
 
 /**

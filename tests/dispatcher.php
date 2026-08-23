@@ -160,9 +160,27 @@ ok('ssoUrl targets this service', $vars['ssoUrl'] === 'clientarea.php?action=pro
 ok('no login token in the output', stripos(json_encode($vars), 'token') === false);
 ok('survives an unusable server entry', is_array(cwp7_ClientArea($offline)));
 
+// Every shortcut goes through single sign-on, so none of them names a panel URL and
+// none mints a session until it is clicked.
+$apps = $vars['apps'];
+ok('a shortcut is offered for every panel app', count($apps) === count(\Cwp7\Actions\PanelApp::APPS));
+ok('shortcuts carry a label and an icon',
+    $apps[0]['label'] !== '' && $apps[0]['icon'] !== '');
+ok('shortcuts point at single sign-on, not at the panel',
+    strpos($apps[0]['url'], 'clientarea.php?action=productdetails&id=42&dosinglesignon=1&cwpapp=') === 0);
+$hosts = 0;
+foreach ($apps as $app) {
+    if (stripos($app['url'], 'cwp.example.com') !== false) {
+        $hosts++;
+    }
+}
+ok('no shortcut names the panel host', $hosts === 0);
+ok('a service with no id offers no shortcuts',
+    cwp7_ClientArea(array_merge($params, ['serviceid' => 0]))['templateVariables']['apps'] === []);
+
 $tpl = file_get_contents(CWP7_DIR . '/templates/overview.tpl');
 $missing = [];
-foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl'] as $v) {
+foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl', 'apps'] as $v) {
     if (strpos($tpl, '$' . $v) === false) {
         $missing[] = $v;
     }

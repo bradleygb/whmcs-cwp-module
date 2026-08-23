@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.1.1
+ * @version 2.2.0
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */

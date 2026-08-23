@@ -6,7 +6,7 @@
  * CwpException on failure; the dispatcher converts that into WHMCS's return contract.
  *
  * @package cwp7
- * @version 2.1.1
+ * @version 2.2.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module

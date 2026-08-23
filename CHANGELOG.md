@@ -2,6 +2,28 @@
 
 All notable changes to this module are documented here.
 
+## 2.2.0
+
+### Added
+
+- **Control panel shortcuts in the client area.** Sixteen tiles below the account details
+  — email accounts, forwarders, autoresponders, filters, FTP, backups, disk usage, cron,
+  MySQL, phpMyAdmin, domains, subdomains, DNS, SSL, error log and statistics — each of
+  which signs the customer in and opens that section of CWP directly.
+
+  Every tile goes through WHMCS single sign-on. **No session is created while the page is
+  drawn and no login token, URL or credential is written into it**; the session is minted
+  when a tile is clicked, exactly as the existing Log In button does.
+
+  The shortcut name arrives as a request parameter, so it is resolved through an
+  allow-list of CWP module names in `lib/Actions/PanelApp.php`. Anything not on that list
+  opens the panel dashboard rather than redirecting anywhere.
+
+  The list is confined to features present on every CWP installation; paid add-ons such as
+  Softaculous, SitePad, SpamExperts and Cloudflare are deliberately excluded, because a
+  tile for something the server does not have is worse than no tile. A feature the
+  account's package does not include opens CWP's own message saying so.
+
 ## 2.1.1
 
 ### Added
