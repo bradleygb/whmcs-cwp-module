@@ -36,14 +36,20 @@ The permissions grid is per **function** and per **action**. An action left off 
 | Account | `upd` | Optional. Applies the product's inode, open-file and process limits when a package changes. Without it the package still moves; only those three limits are skipped. **Some servers refuse this call with the grid switched on** — CWP's own debug log confirms it resolves the request to `accout_upd`, the grant that is set, and refuses it anyway with `Unauthorized2 action`. If yours does, set `apply_resource_limits => false` in `config.php` so the module stops attempting it. |
 | Packages | `list` | Optional but strongly recommended. Resolves the product's package to this server's id, which `changepack` requires — set the package by name without it and every package change fails. It also rejects an unknown id before anything changes: `changepack` answers OK for an id that does not exist and leaves the account with no package at all. Without this grant the product's setting is sent verbatim, so it must be a valid id on every server in the group. |
 | Packages | `add`, `upd` | Only if `push_packages_on_product_save` is enabled, which creates and updates CWP packages from WHMCS products. |
+| Emails | `list` | Optional. Lists the account's mailboxes in the client area. Without it the list is simply absent. |
+| Emails | `add`, `upd`, `del` | Only if `mailbox_management` is enabled, which lets customers create, re-password and delete their own mailboxes. |
 
 `Account`/`upd` is deliberately listed as optional. It is a full account update — CWP
 checks it as `accout_upd`, separately from "Account pack change" — so a key that changes
 packages does not have to carry it.
 
-**Grant nothing else.** In particular the module makes no AutoSSL, Packages, MySQL, FTP,
-Email, DNS Cluster or Cluster call, so those permissions add exposure without adding
-function. This key is administrative over every account on the server — keep it narrow.
+**Grant nothing else.** In particular the module makes no AutoSSL, MySQL, FTP, DNS
+Cluster or Cluster call, so those permissions add exposure without adding function. This
+key is administrative over every account on the server — keep it narrow.
+
+The `Emails` grants are the first that a **customer** can reach, through the client area,
+rather than only WHMCS itself. `list` alone is read-only. Before granting `add`, `upd` or
+`del`, read the `mailbox_management` note in `config.sample.php`.
 
 API Manager also offers **Enable Functions for: WHMCS**, a preset that fills the grid in
 one click. It is quicker, but grants more than the six functions above; the table is the

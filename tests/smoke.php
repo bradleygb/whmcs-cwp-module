@@ -26,12 +26,14 @@ require_once __DIR__ . '/../lib/ClientRequest.php';
 require_once __DIR__ . '/../lib/Validate.php';
 require_once __DIR__ . '/../lib/Actions/Account.php';
 require_once __DIR__ . '/../lib/Actions/Dashboard.php';
+require_once __DIR__ . '/../lib/Actions/Mailbox.php';
 require_once __DIR__ . '/../lib/Actions/Package.php';
 require_once __DIR__ . '/../lib/Actions/Session.php';
 require_once __DIR__ . '/../lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
 use Cwp7\Actions\Dashboard;
+use Cwp7\Actions\Mailbox;
 use Cwp7\Actions\Package;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
@@ -848,6 +850,74 @@ ok('every meter of an empty payload is zero',
 
 ok('dashboard.list is classified as a read, so it needs no token',
     !ClientRequest::mutates('dashboard.list'));
+
+echo "\nMailboxes\n";
+
+// CWP names the same column differently between endpoints, so each is read from a list
+// of candidates. The exact names email/list uses are not documented anywhere we have -
+// tools/email-probe.php reads them off a live server.
+$mailboxRows = Mailbox::rows([
+    ['email' => 'Sales@Example.co.za', 'quota' => '1024', 'used' => '12.5'],
+    ['email_account' => 'info@example.co.za', 'quota_mb' => 2048],
+    ['address' => 'admin@example.co.za'],
+    ['something' => 'unrecognisable'],
+    'not an array',
+]);
+
+ok('a mailbox is read however the address column is named', count($mailboxRows) === 3);
+ok('addresses are lowercased', $mailboxRows[0]['address'] === 'admin@example.co.za');
+ok('mailboxes come back sorted', $mailboxRows[1]['address'] === 'info@example.co.za'
+    && $mailboxRows[2]['address'] === 'sales@example.co.za');
+ok('a quota is read from any of its names', $mailboxRows[1]['quota'] === 2048.0);
+ok('a missing quota is null, not zero - they mean different things',
+    $mailboxRows[0]['quota'] === null);
+ok('usage is read when present', $mailboxRows[2]['used'] === 12.5);
+ok('an unreadable row is skipped rather than fataling', Mailbox::rows(['x', 1, null]) === []);
+
+// The account is fixed by WHMCS, but the address is not - and the key behind it reaches
+// every mailbox on the server.
+throwsKind('a mailbox on another account is refused',
+    function () use ($mailboxRows) { Mailbox::assertOwned($mailboxRows, 'someone@elsewhere.com'); },
+    CwpException::KIND_INPUT);
+throwsKind('a blank address is refused',
+    function () use ($mailboxRows) { Mailbox::assertOwned($mailboxRows, '   '); },
+    CwpException::KIND_INPUT);
+ok('an owned mailbox is accepted, case and space ignored',
+    Mailbox::assertOwned($mailboxRows, '  Sales@Example.co.za ') === 'sales@example.co.za');
+throwsKind('no mailboxes means nothing is owned',
+    function () { Mailbox::assertOwned([], 'sales@example.co.za'); },
+    CwpException::KIND_INPUT);
+
+$box = new Mailbox(makeClient(), 'exampleh');
+
+$add = $box->createFields('sales@example.co.za', 'example.co.za', 'Str0ng-Pass!', '2048');
+ok('add names the hosting account', $add[Mailbox::FIELDS['account']] === 'exampleh');
+ok('add carries the full address', $add[Mailbox::FIELDS['address']] === 'sales@example.co.za');
+ok('add carries the quota given', $add[Mailbox::FIELDS['quota']] === '2048');
+ok('a blank quota falls back to the default',
+    $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!')[Mailbox::FIELDS['quota']]
+        === (string) Mailbox::DEFAULT_QUOTA);
+
+throwsKind('a weak password is refused before the call',
+    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'short'); },
+    CwpException::KIND_INPUT);
+throwsKind('a non-numeric quota is refused',
+    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!', '10GB'); },
+    CwpException::KIND_INPUT);
+throwsKind('a zero quota is refused - blank is how you ask for the default',
+    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!', '0'); },
+    CwpException::KIND_INPUT);
+
+// Every write field goes through one map, so correcting the contract is one edit.
+$mapped = array_keys(Mailbox::FIELDS);
+sort($mapped);
+ok('the wire contract lives in one place',
+    $mapped === ['account', 'address', 'domain', 'password', 'quota']);
+ok('mailbox.list is a read; the rest are not',
+    !ClientRequest::mutates('mailbox.list')
+    && ClientRequest::mutates('mailbox.create')
+    && ClientRequest::mutates('mailbox.delete')
+    && ClientRequest::mutates('mailbox.password'));
 
 echo "\nUsername normalisation (creation only)\n";
 

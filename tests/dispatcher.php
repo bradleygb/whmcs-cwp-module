@@ -188,6 +188,27 @@ ok('an unrouted operation is refused before any call',
     $routed === \Cwp7\CwpException::KIND_INPUT);
 ok('an unrouted operation opens no socket', count($GLOBALS['moduleLog']) === $before);
 
+// Mailbox writes are gated until the email contract is confirmed against a live server.
+// The gate must sit before anything is sent, not after CWP refuses it.
+$blocked = null;
+
+try {
+    cwp7_clientOperation('mailbox.create', $params);
+} catch (\Cwp7\CwpException $e) {
+    $blocked = $e->getKind();
+}
+
+ok('mailbox writes are refused while mailbox_management is off',
+    $blocked === \Cwp7\CwpException::KIND_INPUT);
+ok('a refused mailbox write opens no socket', count($GLOBALS['moduleLog']) === $before);
+
+// A mailbox password is submitted in the request, not in $params, so the loop over
+// $params would never mask it.
+$_POST['password'] = 'a-mailbox-password';
+ok('a submitted mailbox password is masked in the module log',
+    in_array('a-mailbox-password', cwp7_secrets($params), true));
+$_POST = [];
+
 $tpl = file_get_contents(CWP7_DIR . '/templates/overview.tpl');
 $missing = [];
 foreach (['panelUrl', 'username', 'serverHostname', 'ssoUrl', 'dataUrl'] as $v) {

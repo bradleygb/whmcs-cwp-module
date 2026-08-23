@@ -14,7 +14,7 @@
  * this file to be picked up.
  *
  * @package cwp7
- * @version 2.3.0
+ * @version 2.4.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module

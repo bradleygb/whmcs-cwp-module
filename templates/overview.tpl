@@ -68,6 +68,18 @@
 .cwp-panels table { margin-bottom: 0; width: 100%; }
 .cwp-panels td, .cwp-panels th { padding: 6px 8px; font-size: 13px; word-break: break-word; }
 .cwp-scroll { overflow-x: auto; }
+.cwp-section { margin-top: 30px; }
+.cwp-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cwp-section h3 { margin: 0 0 10px; font-size: 16px; }
+.cwp-mailbox-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; margin: 14px 0 18px; }
+.cwp-mailbox-form label { display: block; font-size: 12px; margin-bottom: 4px; opacity: .75; }
+.cwp-at { display: flex; align-items: center; gap: 6px; }
+.cwp-at span { opacity: .6; }
+.cwp-msg { margin: 10px 0 0; padding: 9px 12px; border-radius: 5px; font-size: 13px; }
+.cwp-msg-ok { background: rgba(47, 158, 79, .12); color: #2f9e4f; }
+.cwp-msg-bad { background: rgba(212, 59, 63, .12); color: #d43b3f; }
+.cwp-row-acts { white-space: nowrap; text-align: right; }
+.cwp-row-acts button { margin-left: 6px; }
 @media (max-width: 480px) {
     .cwp-account-actions { flex-direction: column; align-items: stretch; }
     .cwp-account-buttons a { display: block; margin: 6px 0 0; }
@@ -116,6 +128,143 @@
             + '<tbody>' + body + '</tbody></table></div></div>';
     }
 
+    function fieldRow(label, name, type, extra) {
+        return '<div><label for="cwp-' + name + '">' + esc(label) + '</label>'
+            + '<input class="form-control input-sm form-control-sm" id="cwp-' + name + '"'
+            + ' name="' + name + '" type="' + type + '"' + (extra || '') + '></div>';
+    }
+
+    function mailboxes(data) {
+        var rows = data.mailboxes || [];
+        var html = '<div class="cwp-section"><div class="cwp-section-head">'
+            + '<h3>Email Accounts</h3></div>';
+
+        if (data.manageable) {
+            html += '<div class="cwp-mailbox-form">'
+                + '<div><label for="cwp-mailbox">Mailbox</label><div class="cwp-at">'
+                + '<input class="form-control input-sm form-control-sm" id="cwp-mailbox" name="mailbox" type="text">'
+                + '<span>@</span></div></div>'
+                + '<div><label for="cwp-domain">Domain</label>'
+                + '<select class="form-control input-sm form-control-sm" id="cwp-domain" name="domain">'
+                + (data.domains || []).map(function (d) {
+                    return '<option value="' + esc(d) + '">' + esc(d) + '</option>';
+                }).join('')
+                + '</select></div>'
+                + fieldRow('Password', 'password', 'password', ' autocomplete="new-password"')
+                + fieldRow('Size (MB)', 'quota', 'text', ' placeholder="1024"')
+                + '<div><button type="button" class="btn btn-primary btn-block" id="cwp-create">Create Mailbox</button></div>'
+                + '</div>';
+        }
+
+        if (!rows.length) {
+            html += '<p class="text-muted">No email accounts yet.</p>';
+        } else {
+            html += '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
+                + '<thead><tr><th>Address</th><th>Size</th>'
+                + (data.manageable ? '<th></th>' : '') + '</tr></thead><tbody>'
+                + rows.map(function (m) {
+                    return '<tr><td>' + esc(m.address) + '</td>'
+                        + '<td>' + esc(m.quota === null ? 'unlimited' : m.quota + ' MB') + '</td>'
+                        + (data.manageable
+                            ? '<td class="cwp-row-acts">'
+                                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-pw" data-address="' + esc(m.address) + '">Password</button>'
+                                + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + esc(m.address) + '">Delete</button>'
+                                + '</td>'
+                            : '')
+                        + '</tr>';
+                }).join('')
+                + '</tbody></table></div>';
+        }
+
+        return html + '<div id="cwp-mailbox-msg"></div></div>';
+    }
+
+    function say(text, good) {
+        var box = document.getElementById('cwp-mailbox-msg');
+
+        if (box) {
+            box.innerHTML = '<p class="cwp-msg ' + (good ? 'cwp-msg-ok' : 'cwp-msg-bad') + '">' + esc(text) + '</p>';
+        }
+    }
+
+    function send(op, fields, done) {
+        fields.cwpajax = 1;
+        fields.cwpop = op;
+        fields.token = window.csrfToken || '';
+
+        jQuery.post(root.getAttribute('data-url'), fields)
+            .done(function (reply) {
+                if (reply && reply.ok) {
+                    done(reply.data);
+                } else {
+                    say((reply && reply.error) || 'That did not work. Please try again.', false);
+                }
+            })
+            .fail(function (xhr) {
+                var reply = xhr.responseJSON;
+                say((reply && reply.error) || 'That did not work. Please try again.', false);
+            });
+    }
+
+    function loadMailboxes() {
+        var host = document.getElementById('cwp-mailboxes');
+
+        if (!host) {
+            return;
+        }
+
+        jQuery.post(root.getAttribute('data-url'), { cwpajax: 1, cwpop: 'mailbox.list' })
+            .done(function (reply) {
+                if (reply && reply.ok && reply.data) {
+                    reply.data.domains = domains;
+                    host.innerHTML = mailboxes(reply.data);
+                } else {
+                    host.innerHTML = '';
+                }
+            })
+            .fail(function () { host.innerHTML = ''; });
+    }
+
+    jQuery(document).on('click', '#cwp-create', function () {
+        send('mailbox.create', {
+            mailbox: jQuery('#cwp-mailbox').val(),
+            domain: jQuery('#cwp-domain').val(),
+            password: jQuery('#cwp-password').val(),
+            quota: jQuery('#cwp-quota').val()
+        }, function (data) {
+            loadMailboxes();
+            setTimeout(function () { say(data.address + ' created.', true); }, 400);
+        });
+    });
+
+    jQuery(document).on('click', '.cwp-pw', function () {
+        var address = jQuery(this).data('address');
+        var next = window.prompt('New password for ' + address);
+
+        if (!next) {
+            return;
+        }
+
+        send('mailbox.password', { address: address, password: next }, function () {
+            say('Password changed for ' + address + '.', true);
+        });
+    });
+
+    jQuery(document).on('click', '.cwp-del', function () {
+        var address = jQuery(this).data('address');
+
+        if (!window.confirm('Delete ' + address + ' and everything in it? This cannot be undone.')) {
+            return;
+        }
+
+        send('mailbox.delete', { address: address }, function () {
+            loadMailboxes();
+            setTimeout(function () { say(address + ' deleted.', true); }, 400);
+        });
+    });
+
+    var domains = [];
+
     function render(data) {
         var html = '';
 
@@ -135,7 +284,16 @@
             + panel('Databases', ['Database', 'User', 'Host'], data.databases, ['database', 'user', 'host'])
             + '</div>';
 
+        // Domains the account holds, for the create form's picker. The server checks
+        // this again on every request - the list here is a convenience, not the rule.
+        domains = (data.domains || []).map(function (d) { return d.domain; })
+            .concat((data.subdomains || []).map(function (d) { return d.name; }));
+
+        html += '<div id="cwp-mailboxes"></div>';
+
         root.innerHTML = html;
+
+        loadMailboxes();
     }
 
     jQuery.post(root.getAttribute('data-url'), { cwpajax: 1, cwpop: 'dashboard.list' })

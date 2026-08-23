@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.3.0
+ * @version 2.4.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,7 +20,7 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.3.0');
+    define('CWP7_MODULE_VERSION', '2.4.0');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';
@@ -29,12 +29,14 @@ require_once __DIR__ . '/lib/ClientRequest.php';
 require_once __DIR__ . '/lib/Validate.php';
 require_once __DIR__ . '/lib/Actions/Account.php';
 require_once __DIR__ . '/lib/Actions/Dashboard.php';
+require_once __DIR__ . '/lib/Actions/Mailbox.php';
 require_once __DIR__ . '/lib/Actions/Package.php';
 require_once __DIR__ . '/lib/Actions/Session.php';
 require_once __DIR__ . '/lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
 use Cwp7\Actions\Dashboard;
+use Cwp7\Actions\Mailbox;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
 use Cwp7\ClientRequest;
@@ -520,8 +522,71 @@ function cwp7_clientRequest(array $params)
  */
 function cwp7_clientOperation(string $operation, array $params)
 {
+    $account = Account::fromParams($params);
+
     if ($operation === 'dashboard.list') {
-        return Dashboard::from(Account::fromParams($params)->detail());
+        return Dashboard::from($account->detail());
+    }
+
+    if (strpos($operation, 'mailbox.') === 0) {
+        return cwp7_mailboxOperation($operation, $account, $params);
+    }
+
+    throw CwpException::input('That request was not understood.');
+}
+
+/**
+ * Mailbox operations.
+ *
+ * Listing is available whenever the key can read it. Everything that changes a mailbox
+ * is behind `mailbox_management`, off by default: the field names CWP expects on add,
+ * udp and del have not been confirmed against its Interactive Documentation, and a
+ * half-right write request is worse than none.
+ *
+ * @param array<string,mixed> $params
+ *
+ * @return array<string,mixed>
+ *
+ * @throws CwpException
+ */
+function cwp7_mailboxOperation(string $operation, Account $account, array $params)
+{
+    $client = CwpClient::fromParams($params);
+    $mailbox = new Mailbox($client, $account->resolveUsername());
+
+    if ($operation === 'mailbox.list') {
+        return [
+            'mailboxes' => $mailbox->all(),
+            'manageable' => (bool) $client->getOption('mailbox_management', false),
+        ];
+    }
+
+    if (!$client->getOption('mailbox_management', false)) {
+        throw CwpException::input('Mailboxes cannot be changed from here on this server.');
+    }
+
+    $address = ClientRequest::field($_POST, 'address');
+
+    if ($operation === 'mailbox.create') {
+        return ['address' => $mailbox->create(
+            $account->detail(),
+            ClientRequest::field($_POST, 'mailbox'),
+            ClientRequest::field($_POST, 'domain'),
+            ClientRequest::field($_POST, 'password'),
+            ClientRequest::field($_POST, 'quota')
+        )];
+    }
+
+    if ($operation === 'mailbox.password') {
+        $mailbox->changePassword($mailbox->all(), $address, ClientRequest::field($_POST, 'password'));
+
+        return ['address' => $address];
+    }
+
+    if ($operation === 'mailbox.delete') {
+        $mailbox->delete($mailbox->all(), $address);
+
+        return ['address' => $address];
     }
 
     throw CwpException::input('That request was not understood.');
@@ -837,6 +902,15 @@ function cwp7_secrets(array $params)
     foreach (['serveraccesshash', 'serverpassword', 'password'] as $key) {
         if (isset($params[$key]) && is_string($params[$key]) && $params[$key] !== '') {
             $secrets[] = $params[$key];
+        }
+    }
+
+    // A mailbox password submitted from the client area never reaches $params, so it
+    // would not be masked by the loop above. Failing to add a new password field here
+    // is how one ends up in the Module Log.
+    foreach (['password', 'confirm'] as $key) {
+        if (isset($_POST[$key]) && is_string($_POST[$key]) && $_POST[$key] !== '') {
+            $secrets[] = $_POST[$key];
         }
     }
 

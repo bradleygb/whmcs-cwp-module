@@ -2,6 +2,41 @@
 
 All notable changes to this module are documented here.
 
+## 2.4.0
+
+### Added
+
+- **Email accounts in the client area.** The dashboard now lists the account's mailboxes
+  with their sizes, from `email`/`list`. No configuration, and no permission beyond
+  `LIST` on `Emails`. A key without that grant simply shows no list.
+
+- **`mailbox_management` in `config.php`** (default **off**). Turned on, customers can
+  create mailboxes, change their passwords and delete them, without leaving WHMCS.
+
+  **It is off deliberately, and should stay off until you have confirmed the contract on
+  your own server.** The field names CWP expects on `email`/`add`, `udp` and `del` are
+  taken from its conventions on other endpoints, not from its Interactive Documentation,
+  which we have never seen for this endpoint. They are gathered in `Mailbox::FIELDS` so a
+  correction is a single edit.
+
+  Listing does not depend on the setting and is always available.
+
+  Requires `ADD`, `UPD` and `DEL` on `Emails` in addition to `LIST`.
+
+- **`tools/email-probe.php`** — prints what `email`/`list` actually returns for one
+  account, and which fields the module recognises in it. Read-only: it calls nothing but
+  `list`, so it cannot create or delete anything. Use it before enabling the setting.
+
+### Security
+
+- Every mailbox request is checked against what the account actually holds before
+  anything is sent. The hosting account comes from WHMCS, never the request; a named
+  domain must appear in that account's own `accountdetail`; and an address named for a
+  password change or deletion must already be one of that account's mailboxes. The API
+  key reaches every mailbox on the server, so none of these is optional.
+- Mailbox passwords are masked in the Module Log. They arrive in the request rather than
+  in WHMCS's parameters, so the existing masking would not have caught them.
+
 ## 2.3.0
 
 ### Added

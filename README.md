@@ -7,7 +7,7 @@ Drop-in replacement for the stock `cwp7` module: same directory, same module typ
 config option order. Existing server entries, products and services keep working with no
 reconfiguration.
 
-**Version 2.3.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
+**Version 2.4.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
 
 ---
 
@@ -18,6 +18,7 @@ reconfiguration.
 | Provisioning | create, suspend, unsuspend, terminate |
 | Account management | change password, change package and resource limits |
 | Client area | an account dashboard drawn from CWP: usage, allowances, domains, subdomains, databases |
+| Email | list mailboxes, and optionally create, re-password and delete them |
 | Single sign-on | one-click panel login for clients and admins |
 | Usage | daily disk and bandwidth import |
 | Server Sync | list and import accounts that already exist on the server |
@@ -118,6 +119,38 @@ delaying the page. Customers with JavaScript disabled see the details and the bu
 CWP's own conventions are preserved rather than reinterpreted: figures are in megabytes,
 as the panel states them, `-1` means unlimited, and `0` means none included — which is
 not the same thing, and an account can hold more than none regardless.
+
+### Email accounts
+
+The dashboard lists the account's mailboxes and their sizes. That needs nothing beyond
+`LIST` on `Emails`; without the grant, no list appears.
+
+Letting customers **change** their mailboxes is opt-in:
+
+```php
+'mailbox_management' => true,
+```
+
+**Confirm the contract first.** The field names CWP expects on `email`/`add`, `udp` and
+`del` are taken from its conventions on other endpoints — its Interactive Documentation
+for this endpoint has never been read. Check them against your server and correct
+`Mailbox::FIELDS` in `lib/Actions/Mailbox.php` if they differ. Guessing a contract has
+cost this module a release before: `changepack` takes a package id and answers a bare
+`Error` to a name.
+
+Start with the probe, which is read-only:
+
+```bash
+CWP_API_KEY='...' php tools/email-probe.php cwp.example.com exampleh
+```
+
+It prints the raw `list` response and shows which fields the module recognised.
+
+Once it is on, customers get a create form and per-mailbox password and delete actions.
+Every request is checked against what the account actually holds: the hosting account
+comes from WHMCS rather than the request, a named domain must be one of that account's
+own, and an address must already exist on it. Requires `ADD`, `UPD` and `DEL` on
+`Emails`.
 
 ## Upgrading from the stock module
 

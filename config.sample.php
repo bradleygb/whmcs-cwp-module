@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.3.0
+ * @version 2.4.0
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
@@ -102,6 +102,22 @@ return [
          * own FQDN and the redirect must land on it.
          */
         'autologin_trust_returned_host' => false,
+
+        /**
+         * Let customers create, delete and re-password their own mailboxes from the
+         * client area, rather than only listing them.
+         *
+         * OFF, and it should stay off until the field names CWP expects on email/add,
+         * email/udp and email/del have been read out of its Interactive Documentation
+         * and checked against Mailbox::FIELDS. Those names are currently taken from
+         * CWP's conventions on other endpoints, not from its documentation, and a
+         * half-correct write request is worse than no write at all.
+         *
+         * Listing mailboxes does not depend on this and is always available.
+         *
+         * Requires ADD, UPD and DEL on Emails in addition to LIST.
+         */
+        'mailbox_management' => false,
 
         /**
          * Apply the product's inode, open-file and process limits after a package
