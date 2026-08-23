@@ -33,6 +33,9 @@ final class Account
     /** @var array<string,mixed> */
     private $params;
 
+    /** @var string|null Resolved once per instance: each lookup costs a packages/list call. */
+    private $resolvedPackage;
+
     /**
      * @param array<string,mixed> $params
      */
@@ -68,10 +71,10 @@ final class Account
             throw CwpException::config('no domain on the service — CWP cannot create an account without one');
         }
 
-        $this->assertPackageExists($this->packageValue());
+        $package = $this->packageId();
 
         try {
-            $this->client->call('account', 'add', $this->createFields($username, $domain));
+            $this->client->call('account', 'add', $this->createFields($username, $domain, $package));
         } catch (CwpException $e) {
             // CWP keeps building after the module gives up, so a timeout is not proof
             // that nothing happened.
@@ -93,14 +96,14 @@ final class Account
      *
      * @throws CwpException
      */
-    public function createFields(string $username, string $domain): array
+    public function createFields(string $username, string $domain, string $package): array
     {
         return [
             'domain' => $domain,
             'user' => $username,
             'pass' => (string) $this->param('password'),
             'email' => $this->clientEmail(),
-            'package' => $this->packageValue(),
+            'package' => $package,
             'inode' => (string) $this->param('configoption2', '0'),
             'limit_nofile' => (string) $this->param('configoption3', '100'),
             'limit_nproc' => (string) $this->param('configoption4', '40'),
@@ -109,43 +112,96 @@ final class Account
     }
 
     /**
-     * Refuse a package the server does not have, before anything is changed.
+     * This server's numeric id for the product's package, validated on the way.
      *
-     * `changepack` answers `status OK` for an ID that does not exist and leaves the
-     * account pointing at nothing, so the post-change check catches it only after the
-     * damage. This catches it first.
-     *
-     * Fails open: the check needs LIST on Packages, and a key without it — or a response
-     * shape this cannot read — must not block package changes that would otherwise work.
+     * Cached: every lookup costs a packages/list call, and one operation asks more than
+     * once.
      *
      * @throws CwpException
      */
-    private function assertPackageExists(string $package): void
+    private function packageId(): string
+    {
+        if ($this->resolvedPackage === null) {
+            $this->resolvedPackage = $this->resolvePackage($this->packageValue());
+        }
+
+        return $this->resolvedPackage;
+    }
+
+    /**
+     * Turn whatever the product holds — a name or an id — into this server's numeric id.
+     *
+     * `changepack` accepts an id and nothing else: given a name it answers a bare
+     * "Error". Resolving here also makes a name portable, since every server in a group
+     * assigns its own id to the same package.
+     *
+     * Fails open on an unreadable list, so a key without LIST on Packages still works
+     * exactly as it did before this check existed.
+     *
+     * @throws CwpException
+     */
+    private function resolvePackage(string $configured): string
     {
         try {
             $rows = CwpClient::rows($this->client->call('packages', 'list'));
         } catch (CwpException $e) {
-            return;
+            return $configured;
         }
 
-        $known = self::packageIdentifiers($rows);
+        $match = self::matchPackage($rows, $configured);
 
-        if ($known['ids'] === [] && $known['names'] === []) {
-            return;
+        if ($match['id'] !== '') {
+            return $match['id'];
         }
 
-        foreach (array_merge($known['ids'], $known['names']) as $candidate) {
-            if (strcasecmp($candidate, $package) === 0) {
-                return;
-            }
+        if ($match['known'] === []) {
+            return $configured;
         }
 
         throw CwpException::config(sprintf(
-            'CWP has no package "%s" on this server. Known IDs: %s. Set the product\'s '
-            . 'CWP Package field to one of these.',
-            $package,
-            $known['ids'] === [] ? '(none reported)' : implode(', ', array_slice($known['ids'], 0, 25))
+            'CWP has no package "%s" on this server. Available: %s.',
+            $configured,
+            implode(', ', array_slice($match['known'], 0, 25))
         ));
+    }
+
+    /**
+     * Find $wanted among the rows of packages/list, by id or by name.
+     *
+     * Returns the server's id for it, plus every package the server does offer so a
+     * miss can name the alternatives. Separated from the call so the matching is
+     * testable without a server.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     *
+     * @return array{id:string, known:array<int,string>}
+     */
+    public static function matchPackage(array $rows, string $wanted): array
+    {
+        $wanted = trim($wanted);
+        $known = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $identity = self::packageIdentifiers([$row]);
+            $id = isset($identity['ids'][0]) ? $identity['ids'][0] : '';
+            $name = isset($identity['names'][0]) ? $identity['names'][0] : '';
+
+            if ($id === '') {
+                continue;
+            }
+
+            if ($wanted !== '' && (strcasecmp($id, $wanted) === 0 || strcasecmp($name, $wanted) === 0)) {
+                return ['id' => $id, 'known' => []];
+            }
+
+            $known[] = $name === '' ? $id : $name . ' (#' . $id . ')';
+        }
+
+        return ['id' => '', 'known' => $known];
     }
 
     /**
@@ -195,11 +251,11 @@ final class Account
      *
      * @throws CwpException
      */
-    public function changePackFields(string $username): array
+    public function changePackFields(string $username, string $package): array
     {
         return [
             'user' => $username,
-            'package' => $this->packageValue(),
+            'package' => $package,
         ];
     }
 
@@ -211,10 +267,10 @@ final class Account
      * "Account pack change" permission. A key without it still gets the package moved,
      * which is the part that matters.
      */
-    private function applyResourceLimits(string $username): void
+    private function applyResourceLimits(string $username, string $package): void
     {
         try {
-            $this->client->call('account', 'udp', $this->packageFields($username));
+            $this->client->call('account', 'udp', $this->packageFields($username, $package));
         } catch (CwpException $e) {
             if (function_exists('logModuleCall')) {
                 logModuleCall(
@@ -238,7 +294,7 @@ final class Account
      *
      * @throws CwpException
      */
-    public function packageFields(string $username): array
+    public function packageFields(string $username, string $package): array
     {
         $email = $this->clientEmail();
 
@@ -251,7 +307,7 @@ final class Account
         return [
             'user' => $username,
             'email' => $email,
-            'package' => '@' . $this->packageValue(),
+            'package' => '@' . $package,
             'inode' => (string) $this->param('configoption2', '0'),
             'openfiles' => (string) $this->param('configoption3', '100'),
             'processes' => (string) $this->param('configoption4', '40'),
@@ -345,15 +401,13 @@ final class Account
     public function changePackage(): void
     {
         $username = $this->resolveUsername();
-        $package = $this->packageValue();
-
-        $this->assertPackageExists($package);
+        $package = $this->packageId();
 
         // The dedicated endpoint for this one operation, gated by the narrow
         // "Account pack change" permission.
-        $this->client->call('changepack', 'udp', $this->changePackFields($username));
+        $this->client->call('changepack', 'udp', $this->changePackFields($username, $package));
 
-        $this->applyResourceLimits($username);
+        $this->applyResourceLimits($username, $package);
         $this->assertPackageApplied($package);
     }
 
@@ -549,8 +603,8 @@ final class Account
     }
 
     /**
-     * Passed through verbatim, so the product option may hold either a package ID or a
-     * package name depending on what the server accepts.
+     * What the product says its package is — an id or a name; packageId() turns
+     * whichever it is into this server's id.
      *
      * @throws CwpException
      */

@@ -29,6 +29,17 @@ All notable changes to this module are documented here.
 
 ### Fixed
 
+- **A package change failed whenever the package was set by name.** CWP's `changepack`
+  takes a package id and nothing else — given a name it answers a bare `Error` with no
+  explanation. Whatever the product holds, name or id, is now resolved against the
+  server's own package list before anything is sent, so a name works and each server in a
+  group can assign that package its own local id.
+
+  This replaces the existence check added in 2.0.3, which confirmed the package was real
+  and then sent the unusable form of it anyway. Resolution still fails open on a key
+  without `list` on `Packages`, and an unknown package is still refused with the
+  available ones named.
+
 - **`tblservers.accesshash` is not encrypted on every install.** Where it holds the API
   key verbatim, running it through `DecryptPassword` does not fail — it reports success
   and returns binary noise, which CWP rejects as "No special characters are allowed!".

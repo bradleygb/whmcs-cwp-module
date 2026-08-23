@@ -101,9 +101,24 @@ non-fatal so a key holding just the narrow permission still works.
 |---|---|
 | `account`/`add` | bare ID |
 | `account`/`udp` | `@` **prefix** — `@12` |
-| `changepack`/`udp` | bare ID |
+| `changepack`/`udp` | bare ID, **never a name** |
 
 The original module sent `12@` to `account`/`udp`: wrong end, wrong endpoint.
+
+`changepack` is stricter than the other two: a package *name* comes back as a bare
+`Error` with no message, indistinguishable from any other refusal. Observed live —
+`package=Medium+Email+Hosting` fails against the very server on which
+`package=8` succeeds, for the same account and the same package.
+
+That is why `Account::packageId()` resolves the product's setting against
+`packages`/`list` before any of the three are called, rather than 2.0.3's check that the
+package merely existed. Resolution also makes a name portable: every server in a group
+assigns the same package a different local id, so a name is the only setting that can be
+shared, and only if something turns it into that server's id first.
+
+It fails open on an unreadable list, so a key without `list` on `Packages` behaves as it
+did before the check existed. `Account::matchPackage()` holds the matching itself, with
+no client, so the test suite exercises it against fixtures.
 
 **`account`/`udp` — the confirmed contract.** Read out of Interactive Documentation on
 17 August 2026:

@@ -485,7 +485,7 @@ $serviceParams = [
 ];
 $account = new Account(makeClient(), $serviceParams);
 
-$add = $account->createFields('demo', 'example.com');
+$add = $account->createFields('demo', 'example.com', '10');
 ok('add: limit_nofile carries the open-file limit', $add['limit_nofile'] === '150');
 ok('add: limit_nproc carries the process limit', $add['limit_nproc'] === '40');
 ok('add: package is sent bare, no @', $add['package'] === '10');
@@ -494,11 +494,11 @@ ok('add: no nofile/nproc (neither endpoint accepts them)', !isset($add['nofile']
 ok('add: no openfiles/processes (those are udp names)', !isset($add['openfiles']) && !isset($add['processes']));
 
 // Three endpoints, three package formats. changepack takes the bare ID.
-$pack = $account->changePackFields('demo');
+$pack = $account->changePackFields('demo', '10');
 ok('changepack: package is the bare ID, no @', $pack['package'] === '10');
 ok('changepack: sends only user and package', array_keys($pack) === ['user', 'package']);
 
-$udp = $account->packageFields('demo');
+$udp = $account->packageFields('demo', '10');
 ok('udp: openfiles carries the open-file limit', $udp['openfiles'] === '150');
 ok('udp: processes carries the process limit', $udp['processes'] === '40');
 ok('udp: package is @-prefixed, not suffixed', $udp['package'] === '@10');
@@ -549,10 +549,11 @@ ok('surrounding space is ignored', Package::has($serverPackages, '  Regular  '))
 ok('an absent package is not claimed', !Package::has($serverPackages, 'Small Web Hosting'));
 ok('an empty server list is not claimed', !Package::has([], 'Regular'));
 
-echo "\nPackage existence check\n";
+echo "\nPackage resolution\n";
 
-// changepack answers OK for an ID that does not exist and leaves the account with no
-// package, so the requested ID is checked against the server's list first.
+// changepack takes an id and nothing else — a name comes back as a bare "Error" — and
+// each server assigns its own id to the same package, so whatever the product holds is
+// resolved against the server's list before anything is sent.
 $packageRows = [
     ['id' => '2', 'package_name' => 'Regular'],
     ['id' => '3', 'package_name' => 'Linux Medium Web Hosting'],
@@ -570,19 +571,42 @@ $unknown = Account::packageIdentifiers([['something' => 'else'], 'not an array']
 ok('an unreadable shape yields nothing, so the check can fail open',
     $unknown['ids'] === [] && $unknown['names'] === []);
 
+ok('a name resolves to the id this server gave it',
+    Account::matchPackage($packageRows, 'Linux Medium Web Hosting')['id'] === '3');
+ok('resolution ignores case and surrounding space',
+    Account::matchPackage($packageRows, '  large web hosting ')['id'] === '8');
+ok('an id resolves to itself', Account::matchPackage($packageRows, '8')['id'] === '8');
+ok('a name is never mistaken for an id', Account::matchPackage($packageRows, 'Regular')['id'] === '2');
+
+$missed = Account::matchPackage($packageRows, 'Enormous');
+ok('an unknown package resolves to nothing', $missed['id'] === '');
+ok('a miss names the alternatives', $missed['known'] === [
+    'Regular (#2)', 'Linux Medium Web Hosting (#3)', 'Large Web Hosting (#8)',
+]);
+ok('an unreadable list offers no alternatives, so resolution can fail open',
+    Account::matchPackage([['something' => 'else'], 'not an array'], 'Regular')
+        === ['id' => '', 'known' => []]);
+
 $noEmail = new Account(makeClient(), array_merge($serviceParams, ['clientsdetails' => []]));
 throwsKind(
     'udp without a client email is refused before the call',
-    function () use ($noEmail) { $noEmail->packageFields('demo'); },
+    function () use ($noEmail) { $noEmail->packageFields('demo', '10'); },
     CwpException::KIND_CONFIG
 );
 
 $noPackage = new Account(makeClient(), array_merge($serviceParams, ['configoption1' => '']));
 throwsKind(
-    'add without a package is refused before the call',
-    function () use ($noPackage) { $noPackage->createFields('demo', 'example.com'); },
+    'a product with neither a package nor a name is refused before any call',
+    function () use ($noPackage) { invokePrivate($noPackage, 'packageValue', []); },
     CwpException::KIND_CONFIG
 );
+
+// A name is as valid a setting as an id — resolution turns either into an id.
+$byName = new Account(makeClient(), array_merge($serviceParams, [
+    'configoption1' => '  Linux Medium Web Hosting  ',
+]));
+ok('a package name is taken as set, trimmed',
+    invokePrivate($byName, 'packageValue', []) === 'Linux Medium Web Hosting');
 
 echo "\nUsername normalisation (creation only)\n";
 

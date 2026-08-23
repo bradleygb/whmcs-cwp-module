@@ -7,7 +7,7 @@ Drop-in replacement for the stock `cwp7` module: same directory, same module typ
 config option order. Existing server entries, products and services keep working with no
 reconfiguration.
 
-**Version 2.0.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
+**Version 2.1.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
 
 ---
 
@@ -64,13 +64,16 @@ required, the rest are optional — and set in `config.php`:
 ```
 
 Saving the product then creates the package on **every CWP server in that product's
-server group**, or updates it if one of that name already exists. The **CWP Package**
-field is the package name: CWP's update endpoint identifies packages by name, and each
-server assigns its own local id, so a name is the only identifier stable across a group.
+server group**, or updates it if one of that name already exists.
 
-Leave that field **blank** and the product's own name is used, so there is nothing to
-type. Set it explicitly only when a server's package names differ from your product
-names.
+Leave the **CWP Package** field **blank** and the product's own name is used, so there is
+nothing to type. Set it explicitly only when a server's package names differ from your
+product names.
+
+A name is the identifier to prefer: CWP's update endpoint identifies packages by name,
+and each server assigns the same package its own local id. Provisioning resolves whatever
+that field holds — a name or an id — against the target server's package list, so one
+product works across a whole server group.
 
 A limit left blank keeps CWP's own default. Set it to `0` to mean none allowed.
 
