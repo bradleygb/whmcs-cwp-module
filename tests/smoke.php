@@ -22,6 +22,8 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../lib/CwpException.php';
 require_once __DIR__ . '/../lib/CwpClient.php';
+require_once __DIR__ . '/../lib/ClientRequest.php';
+require_once __DIR__ . '/../lib/Validate.php';
 require_once __DIR__ . '/../lib/Actions/Account.php';
 require_once __DIR__ . '/../lib/Actions/Package.php';
 require_once __DIR__ . '/../lib/Actions/PanelApp.php';
@@ -33,8 +35,10 @@ use Cwp7\Actions\Package;
 use Cwp7\Actions\PanelApp;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
+use Cwp7\ClientRequest;
 use Cwp7\CwpClient;
 use Cwp7\CwpException;
+use Cwp7\Validate;
 
 $passed = 0;
 $failed = 0;
@@ -661,6 +665,111 @@ $byName = new Account(makeClient(), array_merge($serviceParams, [
 ]));
 ok('a package name is taken as set, trimmed',
     invokePrivate($byName, 'packageValue', []) === 'Linux Medium Web Hosting');
+
+echo "\nCustomer input rules (allow-lists: the key behind them is server-wide)\n";
+
+ok('a mailbox name is lowercased and trimmed', Validate::localPart('  Sales  ') === 'sales');
+ok('dots, hyphens and underscores are allowed',
+    Validate::localPart('first.last-2_x') === 'first.last-2_x');
+throwsKind('an empty mailbox name is refused',
+    function () { Validate::localPart(''); }, CwpException::KIND_INPUT);
+throwsKind('a leading dot is refused',
+    function () { Validate::localPart('.sales'); }, CwpException::KIND_INPUT);
+throwsKind('a trailing dot is refused',
+    function () { Validate::localPart('sales.'); }, CwpException::KIND_INPUT);
+throwsKind('consecutive dots are refused',
+    function () { Validate::localPart('a..b'); }, CwpException::KIND_INPUT);
+throwsKind('an @ cannot be smuggled into the local part',
+    function () { Validate::localPart('sales@elsewhere.com'); }, CwpException::KIND_INPUT);
+throwsKind('a space is refused',
+    function () { Validate::localPart('two words'); }, CwpException::KIND_INPUT);
+throwsKind('an over-long mailbox name is refused',
+    function () { Validate::localPart(str_repeat('a', 65)); }, CwpException::KIND_INPUT);
+
+ok('an account name is lowercased', Validate::accountName('Backups') === 'backups');
+throwsKind('an account name may not start with a digit',
+    function () { Validate::accountName('2nd'); }, CwpException::KIND_INPUT);
+throwsKind('an account name may not carry a hyphen',
+    function () { Validate::accountName('two-words'); }, CwpException::KIND_INPUT);
+throwsKind('an over-long account name is refused, since CWP prefixes its own',
+    function () { Validate::accountName(str_repeat('a', 17)); }, CwpException::KIND_INPUT);
+
+ok('a strong password is accepted', Validate::password('Str0ng-Pass!') === 'Str0ng-Pass!');
+throwsKind('a short password is refused',
+    function () { Validate::password('Ab3!efg'); }, CwpException::KIND_INPUT);
+throwsKind('an over-long password is refused',
+    function () { Validate::password(str_repeat('Aa1!', 17)); }, CwpException::KIND_INPUT);
+throwsKind('a password with a space is refused',
+    function () { Validate::password('Str0ng Pass!'); }, CwpException::KIND_INPUT);
+throwsKind('a password with a non-ASCII byte is refused',
+    function () { Validate::password('Str0ngPass' . chr(233) . '!'); }, CwpException::KIND_INPUT);
+throwsKind('two character classes are not enough',
+    function () { Validate::password('lowercase123'); }, CwpException::KIND_INPUT);
+
+// Ownership is the difference between a form for this account and a form for any
+// account on the server.
+$detail = [
+    'domains' => [['domain' => 'Example.CO.ZA.']],
+    'subdomins' => [['subdomain' => 'nhw', 'domain' => 'example.co.za']],
+];
+ok('domains and subdomains are collected and normalised',
+    Validate::domainsIn($detail) === ['example.co.za', 'nhw.example.co.za']);
+ok('a payload with neither key yields nothing', Validate::domainsIn([]) === []);
+ok('an owned domain is accepted, however it is typed',
+    Validate::ownedDomain($detail, '  NHW.Example.co.za. ') === 'nhw.example.co.za');
+throwsKind('a domain on another account is refused',
+    function () use ($detail) { Validate::ownedDomain($detail, 'someone-else.co.za'); },
+    CwpException::KIND_INPUT);
+throwsKind('a blank domain is refused',
+    function () use ($detail) { Validate::ownedDomain($detail, ''); },
+    CwpException::KIND_INPUT);
+throwsKind('an unreadable detail payload refuses everything',
+    function () { Validate::ownedDomain([], 'example.co.za'); },
+    CwpException::KIND_INPUT);
+
+echo "\nClient area AJAX transport\n";
+
+ok('a request carrying cwpajax is ours', ClientRequest::wanted(['cwpajax' => '1']));
+ok('an ordinary render is not', !ClientRequest::wanted([]));
+ok('an empty cwpajax is not', !ClientRequest::wanted(['cwpajax' => '']));
+
+ok('a well-formed operation is returned',
+    ClientRequest::operation(['cwpop' => 'mailbox.list']) === 'mailbox.list');
+ok('a path cannot be smuggled through the operation',
+    ClientRequest::operation(['cwpop' => '../../etc/passwd']) === '');
+ok('an operation with no verb is refused',
+    ClientRequest::operation(['cwpop' => 'mailbox']) === '');
+ok('capitals are refused rather than folded',
+    ClientRequest::operation(['cwpop' => 'Mailbox.List']) === '');
+ok('an absurd operation is refused before any lookup',
+    ClientRequest::operation(['cwpop' => str_repeat('a', 41)]) === '');
+ok('a missing operation is refused', ClientRequest::operation([]) === '');
+
+ok('a field is trimmed', ClientRequest::field(['a' => '  b  '], 'a') === 'b');
+ok('a missing field takes the default', ClientRequest::field([], 'a', 'z') === 'z');
+ok('an array field is not accepted as a string',
+    ClientRequest::field(['a' => ['x']], 'a', 'z') === 'z');
+
+ok('a list is a read', !ClientRequest::mutates('mailbox.list'));
+ok('anything else mutates', ClientRequest::mutates('mailbox.delete'));
+
+// Ten mutations a minute per service: enough for real use, not enough to drive an
+// administrative key at machine speed.
+$window = [];
+$allowed = 0;
+for ($i = 0; $i < 12; $i++) {
+    if (ClientRequest::withinRate($window, 1000)) {
+        $allowed++;
+    }
+}
+ok('ten mutations are allowed in a window', $allowed === 10);
+ok('the eleventh is refused', !ClientRequest::withinRate($window, 1000));
+ok('the allowance returns with the next window', ClientRequest::withinRate($window, 1060));
+
+// No WHMCS here, so generate_token() does not exist - which must read as "cannot
+// verify" rather than "no verification needed".
+ok('an empty token is refused', !ClientRequest::tokenValid(''));
+ok('token checking fails closed without WHMCS', !ClientRequest::tokenValid('anything'));
 
 echo "\nUsername normalisation (creation only)\n";
 

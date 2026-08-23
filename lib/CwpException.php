@@ -30,6 +30,9 @@ class CwpException extends \RuntimeException
     /** The module is misconfigured; no request was attempted. */
     const KIND_CONFIG = 'config';
 
+    /** A customer typed something the module refused; no request was attempted. */
+    const KIND_INPUT = 'input';
+
     const GENERIC_CLIENT_MESSAGE =
         'We could not complete that request on the hosting server. '
         . 'Please try again shortly, or contact support if it keeps happening.';
@@ -120,6 +123,23 @@ class CwpException extends \RuntimeException
             'This hosting service is not configured correctly. Please contact support.',
             $context
         );
+    }
+
+    /**
+     * Something a customer entered, refused before any request was made.
+     *
+     * The only kind whose message is written for the customer rather than for the
+     * Module Log: they typed it, so they are the one who can correct it. Safe to show
+     * by construction, because the module authors every one of these strings — none of
+     * them carries CWP output, which can name other accounts and filesystem paths.
+     *
+     * @param array<string,mixed> $context
+     *
+     * @return self
+     */
+    public static function input(string $message, array $context = [])
+    {
+        return new self(self::KIND_INPUT, $message, $message, $context);
     }
 
     /**
