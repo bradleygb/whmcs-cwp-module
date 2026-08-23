@@ -180,7 +180,9 @@
                         + (data.manageable
                             ? '<td class="cwp-row-acts">'
                                 + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
-                                + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
+                                + (data.deletable
+                                    ? '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
+                                    : '')
                                 + '</td>'
                             : '')
                         + '</tr>'
@@ -197,6 +199,11 @@
                             : '');
                 }).join('')
                 + '</tbody></table></div>';
+        }
+
+        if (data.manageable && !data.deletable) {
+            html += '<p class="text-muted" style="margin-top:10px;font-size:12.5px;">'
+                + 'To remove a mailbox, open the control panel or contact support.</p>';
         }
 
         return html + '<div id="cwp-mailbox-msg"></div></div>';

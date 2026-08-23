@@ -51,26 +51,25 @@ final class Mailbox
     ];
 
     /**
-     * What each action means by `user`, which is the trap here.
+     * `del` is broken in CWP and cannot be used. Established on 23 August 2026.
      *
-     * `list` and `add` mean the hosting account. `add` then takes the part before the @
-     * in `email` and composes the address itself — sending `test@example.co.za` with
-     * `domain=example.co.za` produced `testexample.co.za@example.co.za`.
-     *
-     * `del` means the **mailbox address**. It answered HTTP 500 for both a local part
-     * and a whole address in `email`, and the error names the reason:
+     * Every request shape answered HTTP 500 with the same exception:
      *
      *     ErrorException, Undefined offset: 1
      *     /usr/local/cwpsrv/var/services/api/v1/app/routes/modules/email.php
      *
-     * That is `explode('@', ...)[1]` on a value with no @ in it. `email` cannot be the
-     * value being split, because it was the only field that differed between the two
-     * failed attempts. Of the fields that stayed the same, `user` is the one that could
-     * reasonably be expected to hold an address.
+     * That is an array index 1 on something with one element — `explode()` on a value
+     * with no delimiter in it. `user`, `email` and `domain` were each varied
+     * independently, including a whole address in `user`, and the error never changed.
+     * A value that does not change when every field you send changes is a value you are
+     * not sending: the route reads a parameter under a name we never found, and that
+     * file is ionCube-encoded, so there is nothing left to read.
      *
-     * `udp` is assumed to match `del`. All observed live on 23 August 2026.
+     * Whatever the right request is, answering a wrong one with an unhandled PHP notice
+     * rather than an error is a bug in CWP. Deletion is off by default until a CWP
+     * release fixes it — `mailbox_delete` in config.php turns it back on for testing.
      */
-    const ADDRESS_IN_USER = ['del', 'udp'];
+    const DELETE_IS_BROKEN_UPSTREAM = true;
 
     /** Bytes in a megabyte. CWP reports quota in bytes and consumption in kilobytes. */
     const MEGABYTE = 1048576;
@@ -288,7 +287,7 @@ final class Mailbox
      */
     public function updateFields(string $address, string $password, string $quota): array
     {
-        $fields = self::identityFields($address);
+        $fields = $this->identityFields($address);
 
         if (trim($password) !== '') {
             $fields[self::FIELDS['password']] = Validate::password($password);
@@ -300,7 +299,7 @@ final class Mailbox
             $fields[self::FIELDS['quota']] = $quota;
         }
 
-        if (count($fields) === count(self::identityFields($address))) {
+        if (count($fields) === count($this->identityFields($address))) {
             throw CwpException::input('Enter a new password or a new size.');
         }
 
@@ -319,28 +318,27 @@ final class Mailbox
         $this->client->call(
             self::FUNCTION,
             'del',
-            self::identityFields(self::assertOwned($existing, $address))
+            $this->identityFields(self::assertOwned($existing, $address))
         );
     }
 
     /**
-     * How `del` and `udp` name an existing mailbox.
+     * How `udp` names an existing mailbox.
      *
-     * `user` carries the whole address rather than the hosting account — see
-     * ADDRESS_IN_USER. The local part and domain go along too: CWP ignores fields an
-     * action does not use, as it did with `quota` on `add`, so including them costs
-     * nothing and covers the case where the route reads one of them as well.
+     * Shaped like `add`, which is the only write proven to work: the hosting account in
+     * `user`, the local part in `email`, the domain beside it. Putting the whole address
+     * in `user` was tried against `del` and changed nothing.
      *
      * @return array<string,string>
      *
      * @throws CwpException
      */
-    public static function identityFields(string $address): array
+    public function identityFields(string $address): array
     {
         $parts = self::split($address);
 
         return [
-            self::FIELDS['account'] => $address,
+            self::FIELDS['account'] => $this->account,
             self::FIELDS['address'] => $parts['local'],
             self::FIELDS['domain'] => $parts['domain'],
         ];

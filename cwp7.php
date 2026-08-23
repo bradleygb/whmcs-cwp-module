@@ -555,9 +555,14 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
     $mailbox = new Mailbox($client, $account->resolveUsername());
 
     if ($operation === 'mailbox.list') {
+        $manageable = (bool) $client->getOption('mailbox_management', false);
+
         return [
             'mailboxes' => $mailbox->all(),
-            'manageable' => (bool) $client->getOption('mailbox_management', false),
+            'manageable' => $manageable,
+            // CWP's email/del crashes on every request shape we can construct, so the
+            // action is not offered unless someone has turned it on to retest.
+            'deletable' => $manageable && (bool) $client->getOption('mailbox_delete', false),
         ];
     }
 
@@ -589,6 +594,13 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
     }
 
     if ($operation === 'mailbox.delete') {
+        if (!$client->getOption('mailbox_delete', false)) {
+            throw CwpException::input(
+                'Mailboxes cannot be deleted from here. Please use the control panel, '
+                . 'or contact support.'
+            );
+        }
+
         $mailbox->delete($mailbox->all(), $address);
 
         return ['address' => $address];

@@ -120,6 +120,20 @@ return [
         'mailbox_management' => false,
 
         /**
+         * Offer customers a Delete action on their mailboxes.
+         *
+         * OFF because CWP's email/del endpoint does not work. Every request shape
+         * answered HTTP 500 with the same unhandled PHP notice — "Undefined offset: 1"
+         * in app/routes/modules/email.php — with `user`, `email` and `domain` each
+         * varied independently. The file is ionCube-encoded, so the parameter it is
+         * actually looking for cannot be found by reading it.
+         *
+         * Turn this on only to retest after a CWP update. Creating and listing
+         * mailboxes are unaffected and work.
+         */
+        'mailbox_delete' => false,
+
+        /**
          * Apply the product's inode, open-file and process limits after a package
          * change, through account/udp.
          *

@@ -950,20 +950,20 @@ throwsKind('an address with no local part is refused',
     function () { Mailbox::split('@example.co.za'); }, CwpException::KIND_INPUT);
 
 $edit = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '4096');
-// list and add mean the hosting account by "user"; del and udp mean the mailbox. CWP
-// answered both a local part and a whole address in "email" with the same HTTP 500 -
-// ErrorException, Undefined offset: 1 - which is explode('@', ...)[1] on a value with no
-// @ in it. "email" cannot be that value, since it was the only field that differed.
-ok('update puts the whole address in user, not the hosting account',
-    $edit[Mailbox::FIELDS['account']] === 'sales@example.co.za');
+// Shaped like add, which is the only write proven to work. CWP's del answered every
+// shape we could build with the same HTTP 500 - ErrorException, Undefined offset: 1 -
+// including a whole address in user. An error that never changes while every field you
+// send does is an error about a field you are not sending, and the file is ionCube.
+ok('update names the hosting account, as add does',
+    $edit[Mailbox::FIELDS['account']] === 'exampleh');
 ok('update sends the local part and domain alongside',
     $edit[Mailbox::FIELDS['address']] === 'sales'
         && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
 
-$identity = Mailbox::identityFields('sales@example.co.za');
-ok('delete names a mailbox the same way update does',
+$identity = $box->identityFields('sales@example.co.za');
+ok('update is shaped like add, the only write proven to work',
     $identity === [
-        Mailbox::FIELDS['account'] => 'sales@example.co.za',
+        Mailbox::FIELDS['account'] => 'exampleh',
         Mailbox::FIELDS['address'] => 'sales',
         Mailbox::FIELDS['domain'] => 'example.co.za',
     ]);
