@@ -2,6 +2,29 @@
 
 All notable changes to this module are documented here.
 
+## 2.3.0
+
+### Added
+
+- **An account dashboard in the client area.** The service's product details page now
+  shows the account as CWP sees it: package and state, disk and bandwidth against their
+  limits, the email, FTP, database, subdomain and addon-domain allowances with what is
+  used of each, and the full domain, subdomain and database lists.
+
+  It costs one `accountdetail` call, made **after** the page renders rather than during
+  it, so the details and the login button appear immediately and an unreachable panel
+  leaves a short message instead of a stalled page. The module still opens no socket
+  while the client area is being drawn.
+
+  Nothing to configure, and no new permission: `Account Details`/`list` is already
+  required for the admin service tab.
+
+### Changed
+
+- **The control panel shortcut tiles are gone**, one version after arriving. Every tile
+  opened CWP's dashboard rather than its own section, and the dashboard above replaces
+  what they were for. The single **Log in to Control Panel** button remains.
+
 ## 2.2.0
 
 ### Added

@@ -160,27 +160,37 @@ ok('ssoUrl targets this service', $vars['ssoUrl'] === 'clientarea.php?action=pro
 ok('no login token in the output', stripos(json_encode($vars), 'token') === false);
 ok('survives an unusable server entry', is_array(cwp7_ClientArea($offline)));
 
-// Every shortcut goes through single sign-on, so none of them names a panel URL and
-// none mints a session until it is clicked.
-$apps = $vars['apps'];
-ok('a shortcut is offered for every panel app', count($apps) === count(\Cwp7\Actions\PanelApp::APPS));
-ok('shortcuts carry a label and an icon',
-    $apps[0]['label'] !== '' && $apps[0]['icon'] !== '');
-ok('shortcuts point at single sign-on, not at the panel',
-    strpos($apps[0]['url'], 'clientarea.php?action=productdetails&id=42&dosinglesignon=1&cwpapp=') === 0);
-$hosts = 0;
-foreach ($apps as $app) {
-    if (stripos($app['url'], 'cwp.example.com') !== false) {
-        $hosts++;
-    }
+// The dashboard is fetched separately so this render stays socket-free. dataUrl is the
+// plain product page: single sign-on is a different button and must not be triggered by
+// a data fetch.
+ok('dataUrl targets this service without single sign-on',
+    $vars['dataUrl'] === 'clientarea.php?action=productdetails&id=42');
+ok('a service with no id offers no data URL',
+    cwp7_ClientArea(array_merge($params, ['serviceid' => 0]))['templateVariables']['dataUrl'] === '');
+
+// An ordinary render must not be mistaken for a data request.
+$_POST = [];
+$before = count($GLOBALS['moduleLog']);
+cwp7_ClientArea($params);
+ok('a plain render is not treated as a data request', count($GLOBALS['moduleLog']) === $before);
+
+// Routing: only operations the module declares are served, and an unknown one is refused
+// as input rather than reaching CWP.
+$routed = null;
+
+try {
+    cwp7_clientOperation('nonsense.list', $params);
+} catch (\Cwp7\CwpException $e) {
+    $routed = $e->getKind();
 }
-ok('no shortcut names the panel host', $hosts === 0);
-ok('a service with no id offers no shortcuts',
-    cwp7_ClientArea(array_merge($params, ['serviceid' => 0]))['templateVariables']['apps'] === []);
+
+ok('an unrouted operation is refused before any call',
+    $routed === \Cwp7\CwpException::KIND_INPUT);
+ok('an unrouted operation opens no socket', count($GLOBALS['moduleLog']) === $before);
 
 $tpl = file_get_contents(CWP7_DIR . '/templates/overview.tpl');
 $missing = [];
-foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl', 'apps'] as $v) {
+foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl', 'dataUrl'] as $v) {
     if (strpos($tpl, '$' . $v) === false) {
         $missing[] = $v;
     }

@@ -6,7 +6,7 @@
  * page render, and the returned URL is constrained to the configured host.
  *
  * @package cwp7
- * @version 2.2.0
+ * @version 2.3.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -46,12 +46,9 @@ final class Session
     /**
      * A URL that logs straight into this account's panel.
      *
-     * @param string $panelModule A CWP panel module to open instead of the dashboard.
-     *                            Pass only a value resolved through PanelApp.
-     *
      * @throws CwpException
      */
-    public function url(string $panelModule = ''): string
+    public function url(): string
     {
         if (trim($this->username) === '') {
             throw CwpException::config('cannot build an autologin link without a username');
@@ -81,7 +78,7 @@ final class Session
             $url = self::extractUrl(CwpClient::payload($response));
 
             if ($url !== null) {
-                return self::withModule($this->constrainToConfiguredHost($url), $panelModule);
+                return $this->constrainToConfiguredHost($url);
             }
 
             $lastError = CwpException::protocol(
@@ -135,35 +132,6 @@ final class Session
     private static function looksLikeUrl(string $value): bool
     {
         return stripos($value, 'http://') === 0 || stripos($value, 'https://') === 0;
-    }
-
-    /**
-     * Point an autologin URL at one of the panel's modules.
-     *
-     * CWP's own menu links to modules relatively, as `?module=NAME`, because the session
-     * identifier is part of the URL already. Adding a parameter therefore preserves it
-     * wherever it lives, which the panel has put in both the path and the query at
-     * different times.
-     */
-    public static function withModule(string $url, string $module): string
-    {
-        $module = trim($module);
-
-        if ($module === '') {
-            return $url;
-        }
-
-        $fragment = '';
-        $hash = strpos($url, '#');
-
-        if ($hash !== false) {
-            $fragment = substr($url, $hash);
-            $url = substr($url, 0, $hash);
-        }
-
-        $separator = strpos($url, '?') === false ? '?' : '&';
-
-        return $url . $separator . 'module=' . rawurlencode($module) . $fragment;
     }
 
     /**

@@ -25,14 +25,14 @@ require_once __DIR__ . '/../lib/CwpClient.php';
 require_once __DIR__ . '/../lib/ClientRequest.php';
 require_once __DIR__ . '/../lib/Validate.php';
 require_once __DIR__ . '/../lib/Actions/Account.php';
+require_once __DIR__ . '/../lib/Actions/Dashboard.php';
 require_once __DIR__ . '/../lib/Actions/Package.php';
-require_once __DIR__ . '/../lib/Actions/PanelApp.php';
 require_once __DIR__ . '/../lib/Actions/Session.php';
 require_once __DIR__ . '/../lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
+use Cwp7\Actions\Dashboard;
 use Cwp7\Actions\Package;
-use Cwp7\Actions\PanelApp;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
 use Cwp7\ClientRequest;
@@ -476,44 +476,6 @@ $trusting = new Session($client, 'bob', true);
 $kept = invokePrivate($trusting, 'constrainToConfiguredHost', ['https://cwp-real.example.com:2083/l?t=1']);
 ok('trust_returned_host keeps CWP\'s host', $kept === 'https://cwp-real.example.com:2083/l?t=1');
 
-echo "\nPanel shortcuts (an allow-list, because the key comes from the request)\n";
-
-ok('a known shortcut resolves to its CWP module', PanelApp::moduleFor('phpmyadmin') === 'pma');
-ok('resolution ignores case and space', PanelApp::moduleFor('  MySQL  ') === 'mysql_manager');
-ok('an unknown key resolves to nothing, so SSO lands on the dashboard',
-    PanelApp::moduleFor('nonsense') === '');
-ok('an empty key resolves to nothing', PanelApp::moduleFor('') === '');
-// The key arrives from $_REQUEST, so anything not on the list must be refused rather
-// than passed through to the panel.
-ok('a path cannot be smuggled through the key', PanelApp::moduleFor('../../etc/passwd') === '');
-ok('a URL cannot be smuggled through the key', PanelApp::moduleFor('https://evil.example.com/') === '');
-
-$tiles = PanelApp::all();
-ok('every app is offered as a tile', count($tiles) === count(PanelApp::APPS));
-$wellFormed = true;
-foreach ($tiles as $tile) {
-    if ($tile['key'] === '' || $tile['label'] === '' || $tile['icon'] === ''
-        || PanelApp::moduleFor($tile['key']) === ''
-    ) {
-        $wellFormed = false;
-    }
-}
-ok('every tile has a key that resolves, a label and an icon', $wellFormed);
-
-// CWP's own menu links to modules as a relative ?module=NAME, so adding a parameter
-// keeps whichever part of the URL carries the session.
-ok('a module is appended to a URL with no query',
-    Session::withModule('https://cwp.example.com:2083/cwp_TOKEN/bob/', 'pma')
-        === 'https://cwp.example.com:2083/cwp_TOKEN/bob/?module=pma');
-ok('a module is appended to a URL that already has a query',
-    Session::withModule('https://cwp.example.com:2083/l?t=1', 'backups')
-        === 'https://cwp.example.com:2083/l?t=1&module=backups');
-ok('no module leaves the URL untouched',
-    Session::withModule('https://cwp.example.com:2083/l?t=1', '')
-        === 'https://cwp.example.com:2083/l?t=1');
-ok('a fragment stays at the end',
-    Session::withModule('https://cwp.example.com:2083/l#top', 'domains')
-        === 'https://cwp.example.com:2083/l?module=domains#top');
 
 echo "\nCWP field contracts (add and udp disagree; both differ from the 2020 module)\n";
 
@@ -770,6 +732,110 @@ ok('the allowance returns with the next window', ClientRequest::withinRate($wind
 // verify" rather than "no verification needed".
 ok('an empty token is refused', !ClientRequest::tokenValid(''));
 ok('token checking fails closed without WHMCS', !ClientRequest::tokenValid('anything'));
+
+echo "\nDashboard model (built from a real accountdetail response)\n";
+
+// exampleh on a live server, captured 23 August 2026. Kept verbatim: the awkward cases here are
+// real, not invented - a package allowing no FTP accounts that has one, a database
+// allowance of zero holding two, and a domain over its disk quota.
+$exampleh = [
+    'domains' => [[
+        'domain' => 'example-hosting.co.za',
+        'path' => '/home/exampleh/public_html',
+        'email' => 'bradley@connectn.co.za',
+    ]],
+    'subdomins' => [
+        ['subdomain' => 'nhw', 'domain' => 'example-hosting.co.za', 'path' => '/home/exampleh/public_html/nhwmobile'],
+        ['subdomain' => 'test', 'domain' => 'example-hosting.co.za', 'path' => '/home/exampleh/public_html/nhwupdated'],
+    ],
+    'databases' => [
+        ['database' => 'exampleh_mobile', 'user' => 'exampleh_scf', 'host' => 'localhost'],
+        ['database' => 'exampleh_nhw', 'user' => 'exampleh_scf', 'host' => 'localhost'],
+        ['database' => 'exampleh_scf', 'user' => 'exampleh_scf', 'host' => 'localhost'],
+    ],
+    'account_info' => [
+        'directory' => '/home/exampleh/',
+        'package_name' => 'Medium Email Hosting',
+        'space_usage' => 1257.6171875,
+        'space_disk' => '1000',
+        'db_max' => '0',
+        'db_used' => 2,
+        'state' => 'active',
+        'bandwidth' => '-1',
+        'bandwidth_used' => '579',
+        'ftp_accounts' => '0',
+        'ftp_accounts_used' => 1,
+        'email_accounts' => '25',
+        'email_accounts_used' => 4,
+        'addons_domains' => -1,
+        'addons_domains_used' => 0,
+        'sub_domains' => '0',
+        'sub_domains_used' => 2,
+    ],
+];
+
+$model = Dashboard::from($exampleh);
+
+ok('the package is carried through', $model['package'] === 'Medium Email Hosting');
+ok('the state is carried through', $model['state'] === 'active');
+
+$disk = $model['meters'][0];
+ok('disk usage is read', (int) $disk['used'] === 1257);
+ok('an over-quota account is flagged', $disk['over'] === true);
+ok('the bar is capped rather than drawn past its end', $disk['percent'] === 100);
+// Megabytes throughout: CWP defines packages in MB, and scaling by magnitude once
+// produced "1.23 GB of 1,000 MB".
+ok('both sides of a meter use the same unit', $disk['text'] === '1,258 MB of 1,000 MB');
+
+$bandwidth = $model['meters'][1];
+ok('-1 reads as unlimited', $bandwidth['unlimited'] === true);
+ok('an unlimited meter draws no bar', $bandwidth['percent'] === null);
+ok('an unlimited meter still states what is used',
+    $bandwidth['text'] === '579 MB used of unlimited');
+ok('unlimited is never also over', $bandwidth['over'] === false);
+
+$email = $model['allowances'][0];
+ok('an ordinary allowance reads as used of limit', $email['text'] === '4 of 25');
+ok('its bar is proportional', $email['percent'] === 16);
+
+// The trap: 0 is not unlimited, and an account can hold more than none anyway.
+$ftp = $model['allowances'][1];
+ok('a zero limit is not mistaken for unlimited', $ftp['unlimited'] === false);
+ok('a zero limit reads as none included', $ftp['none'] === true);
+ok('holding more than none is flagged', $ftp['over'] === true);
+ok('a zero limit states the usage in words rather than a bar',
+    $ftp['text'] === '1 used, none included' && $ftp['percent'] === null);
+
+$addons = $model['allowances'][4];
+ok('nothing used against unlimited still reads sensibly',
+    $addons['text'] === '0 used of unlimited');
+
+ok('domains are listed', count($model['domains']) === 1);
+ok('a domain carries its document root',
+    $model['domains'][0]['path'] === '/home/exampleh/public_html');
+ok('subdomains are read from CWP\'s "subdomins" spelling', count($model['subdomains']) === 2);
+ok('a subdomain is presented as a full name',
+    $model['subdomains'][0]['name'] === 'nhw.example-hosting.co.za');
+ok('databases are listed with their user', count($model['databases']) === 3
+    && $model['databases'][0]['user'] === 'exampleh_scf');
+
+// If CWP ever corrects the typo, the list must not silently empty.
+$corrected = Dashboard::subdomains([
+    'subdomains' => [['subdomain' => 'shop', 'domain' => 'example.com', 'path' => '/x']],
+]);
+ok('a corrected "subdomains" spelling is read too',
+    count($corrected) === 1 && $corrected[0]['name'] === 'shop.example.com');
+
+// An account whose detail call came back in an unexpected shape must render an empty
+// dashboard, not a fatal error on a customer's page.
+$empty = Dashboard::from([]);
+ok('an empty payload yields a model rather than a failure',
+    $empty['package'] === '' && $empty['domains'] === [] && count($empty['meters']) === 2);
+ok('every meter of an empty payload is zero',
+    $empty['meters'][0]['used'] === 0.0 && $empty['meters'][0]['over'] === false);
+
+ok('dashboard.list is classified as a read, so it needs no token',
+    !ClientRequest::mutates('dashboard.list'));
 
 echo "\nUsername normalisation (creation only)\n";
 

@@ -7,7 +7,7 @@ Drop-in replacement for the stock `cwp7` module: same directory, same module typ
 config option order. Existing server entries, products and services keep working with no
 reconfiguration.
 
-**Version 2.2.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
+**Version 2.3.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
 
 ---
 
@@ -17,7 +17,8 @@ reconfiguration.
 |---|---|
 | Provisioning | create, suspend, unsuspend, terminate |
 | Account management | change password, change package and resource limits |
-| Single sign-on | one-click panel login for clients and admins, and shortcuts into sixteen panel sections |
+| Client area | an account dashboard drawn from CWP: usage, allowances, domains, subdomains, databases |
+| Single sign-on | one-click panel login for clients and admins |
 | Usage | daily disk and bandwidth import |
 | Server Sync | list and import accounts that already exist on the server |
 | Admin | connection test, live account detail on the service page, panel links |
@@ -100,31 +101,23 @@ dropdown now does the same job. The button is only hidden, never removed — a p
 upgrade or downgrade order calls the same code, and dropping it would bill a customer for
 a package the server never applies. Turn the setting off and the button returns.
 
-### Control panel shortcuts
+### The client area dashboard
 
-The client area shows tiles for the common panel sections — email, FTP, databases,
-backups, DNS, SSL and the rest. Clicking one signs the customer in and lands them on that
-section.
+The product details page shows the account as CWP sees it — package and state, disk and
+bandwidth against their limits, the email, FTP, database, subdomain and addon-domain
+allowances, and the domain, subdomain and database lists.
 
-Nothing is configurable and nothing needs enabling. Each tile is a link to WHMCS single
-sign-on, so no session, token or credential exists in the rendered page, and the panel is
-not contacted while the page is drawn.
+Nothing to configure, and no permission beyond `Account Details`/`list`, which the admin
+service tab already needs.
 
-The tiles cover features every CWP installation has. Paid add-ons are not included, since
-a tile for something a server does not run is worse than no tile. If the account's package
-excludes a feature, CWP says so when the tile is opened.
+The figures come from one `accountdetail` call made **after** the page renders. The
+account details and the login button therefore appear immediately, and a panel that is
+slow, firewalled or down leaves a short message in place of the dashboard rather than
+delaying the page. Customers with JavaScript disabled see the details and the button.
 
-To change the list, edit `PanelApp::APPS` in `lib/Actions/PanelApp.php`. The panel's own
-module names come from its menu:
-
-```bash
-grep -o '?module=[a-z_0-9]*' \
-  /usr/local/cwpsrv/var/services/users/cwp_theme/original/menu_left.html | sort -u
-```
-
-That list is also the allow-list. The shortcut name reaches the module as a request
-parameter, so anything absent from it opens the dashboard instead — do not replace the
-lookup with the raw value.
+CWP's own conventions are preserved rather than reinterpreted: figures are in megabytes,
+as the panel states them, `-1` means unlimited, and `0` means none included — which is
+not the same thing, and an account can hold more than none regardless.
 
 ## Upgrading from the stock module
 

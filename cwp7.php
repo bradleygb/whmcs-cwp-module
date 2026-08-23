@@ -9,7 +9,7 @@
  * Supports WHMCS 8.5 to 9.0 on PHP 7.4 to 8.3.
  *
  * @package cwp7
- * @version 2.2.0
+ * @version 2.3.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -20,21 +20,24 @@ if (!defined('WHMCS')) {
 }
 
 if (!defined('CWP7_MODULE_VERSION')) {
-    define('CWP7_MODULE_VERSION', '2.2.0');
+    define('CWP7_MODULE_VERSION', '2.3.0');
 }
 
 require_once __DIR__ . '/lib/CwpException.php';
 require_once __DIR__ . '/lib/CwpClient.php';
+require_once __DIR__ . '/lib/ClientRequest.php';
+require_once __DIR__ . '/lib/Validate.php';
 require_once __DIR__ . '/lib/Actions/Account.php';
+require_once __DIR__ . '/lib/Actions/Dashboard.php';
 require_once __DIR__ . '/lib/Actions/Package.php';
-require_once __DIR__ . '/lib/Actions/PanelApp.php';
 require_once __DIR__ . '/lib/Actions/Session.php';
 require_once __DIR__ . '/lib/Actions/Usage.php';
 
 use Cwp7\Actions\Account;
-use Cwp7\Actions\PanelApp;
+use Cwp7\Actions\Dashboard;
 use Cwp7\Actions\Session;
 use Cwp7\Actions\Usage;
+use Cwp7\ClientRequest;
 use Cwp7\CwpClient;
 use Cwp7\CwpException;
 
@@ -396,12 +399,7 @@ function cwp7_ServiceSingleSignOn(array $params)
             (bool) $client->getOption('autologin_trust_returned_host', false)
         );
 
-        // The shortcut the customer clicked, if any. Resolved through the allow-list,
-        // so an unknown or forged value opens the dashboard rather than an arbitrary
-        // panel URL.
-        $requested = isset($_REQUEST['cwpapp']) ? (string) $_REQUEST['cwpapp'] : '';
-
-        return ['success' => true, 'redirectTo' => $session->url(PanelApp::moduleFor($requested))];
+        return ['success' => true, 'redirectTo' => $session->url()];
     } catch (CwpException $e) {
         cwp7_logFailure('ServiceSingleSignOn', $params, $e);
 
@@ -429,6 +427,12 @@ function cwp7_ServiceSingleSignOn(array $params)
  */
 function cwp7_ClientArea(array $params)
 {
+    // Dashboard data is fetched separately so this render still opens no socket and an
+    // unreachable panel cannot delay the page.
+    if (ClientRequest::wanted($_POST)) {
+        cwp7_clientRequest($params);
+    }
+
     $serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
 
     try {
@@ -449,32 +453,79 @@ function cwp7_ClientArea(array $params)
             'domain' => isset($params['domain']) ? (string) $params['domain'] : '',
             'serverHostname' => isset($params['serverhostname']) ? (string) $params['serverhostname'] : '',
             'ssoUrl' => $ssoUrl,
-            'apps' => $ssoUrl === '' ? [] : cwp7_panelShortcuts($ssoUrl),
+            'dataUrl' => $serviceId > 0
+                ? 'clientarea.php?action=productdetails&id=' . $serviceId
+                : '',
         ],
     ];
 }
 
 /**
- * The panel shortcuts shown in the client area, each pointing at single sign-on.
+ * Serve one client area data request and stop.
  *
- * Every link goes through WHMCS single sign-on rather than the panel directly, so no
- * session is minted until one is clicked and none is written into the page.
+ * Reached only from cwp7_ClientArea(), so WHMCS has already authenticated the session and
+ * resolved this service to the logged-in client. Which account is touched comes from
+ * $params for that reason; the request supplies the operation and its own fields, never
+ * an account.
  *
- * @return array<int,array{label:string, icon:string, url:string}>
+ * @param array<string,mixed> $params
  */
-function cwp7_panelShortcuts(string $ssoUrl)
+function cwp7_clientRequest(array $params)
 {
-    $shortcuts = [];
+    $operation = ClientRequest::operation($_POST);
 
-    foreach (PanelApp::all() as $app) {
-        $shortcuts[] = [
-            'label' => $app['label'],
-            'icon' => $app['icon'],
-            'url' => $ssoUrl . '&cwpapp=' . rawurlencode($app['key']),
-        ];
+    if ($operation === '') {
+        ClientRequest::refuse('That request was not understood.');
     }
 
-    return $shortcuts;
+    if (ClientRequest::mutates($operation)) {
+        if (!ClientRequest::tokenValid(ClientRequest::field($_POST, 'token'))) {
+            ClientRequest::refuse('Your session has expired. Reload the page and try again.', 403);
+        }
+
+        $serviceId = isset($params['serviceid']) ? (int) $params['serviceid'] : 0;
+
+        if (!ClientRequest::allow($serviceId, time())) {
+            ClientRequest::refuse('Too many changes at once. Wait a minute and try again.', 429);
+        }
+    }
+
+    try {
+        ClientRequest::respond(['ok' => true, 'data' => cwp7_clientOperation($operation, $params)]);
+    } catch (CwpException $e) {
+        // An input refusal is the customer's to fix and says so; it is not a fault worth
+        // a Module Log entry.
+        if ($e->getKind() !== CwpException::KIND_INPUT) {
+            cwp7_logFailure('ClientArea ' . $operation, $params, $e);
+        }
+
+        ClientRequest::refuse(
+            $e->getClientMessage(),
+            $e->getKind() === CwpException::KIND_INPUT ? 422 : 502
+        );
+    } catch (\Throwable $e) {
+        cwp7_logFailure('ClientArea ' . $operation, $params, $e);
+
+        ClientRequest::refuse(CwpException::GENERIC_CLIENT_MESSAGE, 500);
+    }
+}
+
+/**
+ * Route one operation to the class that performs it.
+ *
+ * @param array<string,mixed> $params
+ *
+ * @return array<string,mixed>
+ *
+ * @throws CwpException
+ */
+function cwp7_clientOperation(string $operation, array $params)
+{
+    if ($operation === 'dashboard.list') {
+        return Dashboard::from(Account::fromParams($params)->detail());
+    }
+
+    throw CwpException::input('That request was not understood.');
 }
 
 /**
