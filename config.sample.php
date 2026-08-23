@@ -107,31 +107,31 @@ return [
          * Let customers create, delete and re-password their own mailboxes from the
          * client area, rather than only listing them.
          *
-         * OFF, and it should stay off until the field names CWP expects on email/add,
-         * email/udp and email/del have been read out of its Interactive Documentation
-         * and checked against Mailbox::FIELDS. Those names are currently taken from
-         * CWP's conventions on other endpoints, not from its documentation, and a
-         * half-correct write request is worse than no write at all.
+         * In practice this means creating them: CWP's endpoints for changing and
+         * deleting a mailbox are broken, and are behind `mailbox_modify` below.
+         *
+         * The size a new mailbox gets is CWP's own. Its add endpoint accepts a quota and
+         * ignores it, so the create form does not offer the field.
          *
          * Listing mailboxes does not depend on this and is always available.
          *
-         * Requires ADD, UPD and DEL on Emails in addition to LIST.
+         * Requires ADD on Emails in addition to LIST.
          */
         'mailbox_management' => false,
 
         /**
-         * Offer customers a Delete action on their mailboxes.
+         * Offer Edit and Delete on an existing mailbox.
          *
-         * OFF because CWP's email/del endpoint does not work. Every request shape
-         * answered HTTP 500 with the same unhandled PHP notice — "Undefined offset: 1"
-         * in app/routes/modules/email.php — with `user`, `email` and `domain` each
-         * varied independently. The file is ionCube-encoded, so the parameter it is
-         * actually looking for cannot be found by reading it.
+         * OFF because neither works: CWP's email/udp and email/del both answer HTTP 500
+         * with the same unhandled PHP notice — "Undefined offset: 1" in
+         * app/routes/modules/email.php — for every request shape, with `user`, `email`
+         * and `domain` each varied independently. That file is ionCube-encoded, so the
+         * parameter they are actually looking for cannot be found by reading it.
          *
-         * Turn this on only to retest after a CWP update. Creating and listing
-         * mailboxes are unaffected and work.
+         * Turn this on only to retest after a CWP update. Listing mailboxes and creating
+         * them are unaffected and work.
          */
-        'mailbox_delete' => false,
+        'mailbox_modify' => false,
 
         /**
          * Apply the product's inode, open-file and process limits after a package

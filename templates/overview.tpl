@@ -132,8 +132,6 @@
             + '<tbody>' + body + '</tbody></table></div></div>';
     }
 
-    var DEFAULT_QUOTA = '1024';
-
     // label is markup, not text: the callers build it. Values are escaped where they
     // are interpolated, which is what matters.
     function fieldRow(label, name, type, extra) {
@@ -159,8 +157,6 @@
                 }).join('')
                 + '</select></div>'
                 + fieldRow('Password', 'password', 'password', ' autocomplete="new-password"')
-                + fieldRow('Size (MB) <span class="cwp-hint">optional</span>', 'quota', 'text',
-                    ' placeholder="' + DEFAULT_QUOTA + ' if left blank"')
                 + '<div><button type="button" class="btn btn-primary btn-block" id="cwp-create">Create Mailbox</button></div>'
                 + '</div>';
         }
@@ -179,14 +175,14 @@
                         + '<td>' + esc(m.quota === null ? 'unlimited' : m.quota + ' MB') + '</td>'
                         + (data.manageable
                             ? '<td class="cwp-row-acts">'
-                                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
-                                + (data.deletable
-                                    ? '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
+                                + (data.modifiable
+                                    ? '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
+                                        + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
                                     : '')
                                 + '</td>'
                             : '')
                         + '</tr>'
-                        + (data.manageable
+                        + (data.modifiable
                             ? '<tr id="cwp-edit-' + i + '" style="display:none;"><td colspan="4" class="cwp-edit">'
                                 + '<div class="cwp-edit-grid">'
                                 + '<div><label>New password <span class="cwp-hint">leave blank to keep</span></label>'
@@ -201,9 +197,10 @@
                 + '</tbody></table></div>';
         }
 
-        if (data.manageable && !data.deletable) {
+        if (data.manageable && !data.modifiable) {
             html += '<p class="text-muted" style="margin-top:10px;font-size:12.5px;">'
-                + 'To remove a mailbox, open the control panel or contact support.</p>';
+                + 'To change a mailbox password or remove a mailbox, open the control '
+                + 'panel or contact support.</p>';
         }
 
         return html + '<div id="cwp-mailbox-msg"></div></div>';
@@ -259,8 +256,7 @@
         send('mailbox.create', {
             mailbox: jQuery('#cwp-mailbox').val(),
             domain: jQuery('#cwp-domain').val(),
-            password: jQuery('#cwp-password').val(),
-            quota: jQuery('#cwp-quota').val()
+            password: jQuery('#cwp-password').val()
         }, function (data) {
             loadMailboxes();
             setTimeout(function () { say(data.address + ' created.', true); }, 400);

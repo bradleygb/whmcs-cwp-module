@@ -560,9 +560,9 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
         return [
             'mailboxes' => $mailbox->all(),
             'manageable' => $manageable,
-            // CWP's email/del crashes on every request shape we can construct, so the
-            // action is not offered unless someone has turned it on to retest.
-            'deletable' => $manageable && (bool) $client->getOption('mailbox_delete', false),
+            // CWP's email/udp and email/del both crash on every request shape we can
+            // construct, so neither is offered unless someone turns them on to retest.
+            'modifiable' => $manageable && (bool) $client->getOption('mailbox_modify', false),
         ];
     }
 
@@ -582,6 +582,15 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
         )];
     }
 
+    if ($operation === 'mailbox.update' || $operation === 'mailbox.delete') {
+        if (!$client->getOption('mailbox_modify', false)) {
+            throw CwpException::input(
+                'Mailboxes cannot be changed or removed from here. Please use the '
+                . 'control panel, or contact support.'
+            );
+        }
+    }
+
     if ($operation === 'mailbox.update') {
         $mailbox->update(
             $mailbox->all(),
@@ -594,13 +603,6 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
     }
 
     if ($operation === 'mailbox.delete') {
-        if (!$client->getOption('mailbox_delete', false)) {
-            throw CwpException::input(
-                'Mailboxes cannot be deleted from here. Please use the control panel, '
-                . 'or contact support.'
-            );
-        }
-
         $mailbox->delete($mailbox->all(), $address);
 
         return ['address' => $address];

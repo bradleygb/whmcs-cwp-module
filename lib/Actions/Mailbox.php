@@ -51,7 +51,7 @@ final class Mailbox
     ];
 
     /**
-     * `del` is broken in CWP and cannot be used. Established on 23 August 2026.
+     * `udp` and `del` are both broken in CWP. Established on 23 August 2026.
      *
      * Every request shape answered HTTP 500 with the same exception:
      *
@@ -65,11 +65,24 @@ final class Mailbox
      * not sending: the route reads a parameter under a name we never found, and that
      * file is ionCube-encoded, so there is nothing left to read.
      *
+     * `udp` answers with the same exception from the same file, so both actions on an
+     * existing mailbox are unusable. `list` and `add` work.
+     *
      * Whatever the right request is, answering a wrong one with an unhandled PHP notice
-     * rather than an error is a bug in CWP. Deletion is off by default until a CWP
-     * release fixes it — `mailbox_delete` in config.php turns it back on for testing.
+     * rather than an error is a bug in CWP. Both are off until a CWP release fixes
+     * them — `mailbox_modify` in config.php turns them back on to retest.
      */
-    const DELETE_IS_BROKEN_UPSTREAM = true;
+    const MODIFY_IS_BROKEN_UPSTREAM = ['udp', 'del'];
+
+    /**
+     * `add` accepts `quota` and ignores it.
+     *
+     * Sent 1073741824 — a gigabyte, in the bytes `list` reports — and the mailbox came
+     * back at 0. CWP raised no error, so the name is wrong or the field is not read. The
+     * size box is not offered on the create form for that reason: a control that does
+     * nothing is worse than none.
+     */
+    const QUOTA_IGNORED_ON_ADD = true;
 
     /** Bytes in a megabyte. CWP reports quota in bytes and consumption in kilobytes. */
     const MEGABYTE = 1048576;
