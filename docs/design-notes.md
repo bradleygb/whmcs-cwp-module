@@ -290,10 +290,39 @@ Run both on the oldest and newest supported PHP before releasing.
 to see which permission a refused call actually wanted, because **the names CWP checks
 internally do not match the API Manager labels**:
 
-| API Manager row / column | Checked internally as |
-|---|---|
-| Account Details / LIST | `detailaccount_list` |
-| Account / UPD | `accout_upd` — CWP's own typo |
+| Endpoint | API Manager row / column | Checked internally as |
+|---|---|---|
+| `account`/`add` | Account / ADD | `accout_add` |
+| `account`/`udp` | Account / UPD | `accout_upd` — CWP's own typo |
+| `account`/`del` | Account / DEL | `accout_del` |
+| `account`/`susp` | Account / SUSP | `accout_susp` |
+| `account`/`unsp` | Account / UNSP | `accout_unsp` |
+| `accountdetail`/`list` | Account Details / LIST | `detailaccount_list` |
+| `changepack`/`udp` | Account pack change / UPD | `changepack_udp` — keeps `udp` where the account rows use `upd` |
+| `packages`/`list` | Packages / LIST | `pack_list` |
+| `changepass`/`udp` | Change of password / UPD | `changpass_udp` |
+| `user_session`/`list` | Autologin / LIST | `user_session_list` |
+
+Read out of `/var/log/cwp/cwp_api.log` on 23 August 2026, except the last two, which come
+from the theme's default-grant list in `mod_reseller_apimanager.html`. Note there is no
+rule: `accout_*` drops a letter, `changepack_udp` keeps the endpoint's `udp` while the
+account rows use `upd`, and `changpass_udp` drops a letter *and* keeps `udp`.
+
+**`accout_upd` can be granted and still refused.** Observed on a live server with Account
+ADD/UPD/DEL/LIST/SUSP/UNSP all on, and with Account Quota, Quota limit and Metadata
+Account added for good measure:
+
+```
+Unauthorized2 action
+Key:<key>, action:accout_upd, ip:<whmcs server>
+Error
+```
+
+Note `Unauthorized2`, and that the line carries no `return:` clause where every authorised
+call logs one — a second check that the grant alone does not satisfy. The check is in
+encoded code and the key store is in neither `root_cwp` nor any file the API Manager
+writes, so there is nothing further to inspect from outside. `apply_resource_limits` in
+`config.php` exists for exactly this server.
 
 The log also records **the API key in plaintext**, so it must be treated as a credential
 disclosure: switch debug off, delete the log, rotate the key. The module's own logging
