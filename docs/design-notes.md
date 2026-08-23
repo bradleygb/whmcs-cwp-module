@@ -324,6 +324,16 @@ encoded code and the key store is in neither `root_cwp` nor any file the API Man
 writes, so there is nothing further to inspect from outside. `apply_resource_limits` in
 `config.php` exists for exactly this server.
 
+**There is no alternative endpoint, and this has been checked rather than assumed.**
+Interactive Documentation for `accountquota` and `quotalimit` — the two endpoints whose
+names suggest they might — shows `list` as their only action. They report counts and
+nothing else.
+
+**And "Unauthorized action" is not a documented response for `account`/`udp`.** Its page
+lists six failures: no user, unknown user, no email, unknown package, an update error, and
+user is root. The refusal we get is not among them, which puts the fault in CWP's
+permission layer rather than in anything the request contains.
+
 **There is no way around it, and no need to look for one.** The permission is derived from
 the endpoint and action pair inside CWP, so no field in the request changes which one is
 checked. Nor is there a second route to the same limits: `Account Quota` and `Quota limit`
