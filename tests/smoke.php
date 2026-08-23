@@ -950,12 +950,23 @@ throwsKind('an address with no local part is refused',
     function () { Mailbox::split('@example.co.za'); }, CwpException::KIND_INPUT);
 
 $edit = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '4096');
-// add composes an address from a local part; udp and del identify one that exists, and
-// list only ever names a mailbox by its whole address. Sending del a local part answered
-// HTTP 500.
-ok('update names the whole address, unlike add',
-    $edit[Mailbox::FIELDS['address']] === 'sales@example.co.za'
+// list and add mean the hosting account by "user"; del and udp mean the mailbox. CWP
+// answered both a local part and a whole address in "email" with the same HTTP 500 -
+// ErrorException, Undefined offset: 1 - which is explode('@', ...)[1] on a value with no
+// @ in it. "email" cannot be that value, since it was the only field that differed.
+ok('update puts the whole address in user, not the hosting account',
+    $edit[Mailbox::FIELDS['account']] === 'sales@example.co.za');
+ok('update sends the local part and domain alongside',
+    $edit[Mailbox::FIELDS['address']] === 'sales'
         && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
+
+$identity = Mailbox::identityFields('sales@example.co.za');
+ok('delete names a mailbox the same way update does',
+    $identity === [
+        Mailbox::FIELDS['account'] => 'sales@example.co.za',
+        Mailbox::FIELDS['address'] => 'sales',
+        Mailbox::FIELDS['domain'] => 'example.co.za',
+    ]);
 ok('update carries both changes when both are given',
     $edit[Mailbox::FIELDS['password']] === 'N3w-Pass!word'
         && $edit[Mailbox::FIELDS['quota']] === '4294967296');

@@ -51,19 +51,26 @@ final class Mailbox
     ];
 
     /**
-     * How `address` is written differs by action, which is the trap here.
+     * What each action means by `user`, which is the trap here.
      *
-     * `add` takes the part before the @ and composes the address itself: sending
-     * `test@example.co.za` with `domain=example.co.za` produced
-     * `testexample.co.za@example.co.za`.
+     * `list` and `add` mean the hosting account. `add` then takes the part before the @
+     * in `email` and composes the address itself — sending `test@example.co.za` with
+     * `domain=example.co.za` produced `testexample.co.za@example.co.za`.
      *
-     * `del` takes the whole address. Sending it a local part answered HTTP 500 — and
-     * `list` identifies each mailbox by its full address, with no separate local part,
-     * so that is the only identifier it has. `udp` is assumed to match `del`.
+     * `del` means the **mailbox address**. It answered HTTP 500 for both a local part
+     * and a whole address in `email`, and the error names the reason:
      *
-     * Both observed live on 23 August 2026.
+     *     ErrorException, Undefined offset: 1
+     *     /usr/local/cwpsrv/var/services/api/v1/app/routes/modules/email.php
+     *
+     * That is `explode('@', ...)[1]` on a value with no @ in it. `email` cannot be the
+     * value being split, because it was the only field that differed between the two
+     * failed attempts. Of the fields that stayed the same, `user` is the one that could
+     * reasonably be expected to hold an address.
+     *
+     * `udp` is assumed to match `del`. All observed live on 23 August 2026.
      */
-    const COMPOSES_ADDRESS = ['add'];
+    const ADDRESS_IN_USER = ['del', 'udp'];
 
     /** Bytes in a megabyte. CWP reports quota in bytes and consumption in kilobytes. */
     const MEGABYTE = 1048576;
@@ -92,6 +99,7 @@ final class Mailbox
      */
     public function all(): array
     {
+        // list means the hosting account here, unlike del and udp.
         return self::rows(
             CwpClient::rows($this->client->call(self::FUNCTION, 'list', [
                 self::FIELDS['account'] => $this->account,
@@ -280,11 +288,7 @@ final class Mailbox
      */
     public function updateFields(string $address, string $password, string $quota): array
     {
-        $fields = [
-            self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $address,
-            self::FIELDS['domain'] => self::split($address)['domain'],
-        ];
+        $fields = self::identityFields($address);
 
         if (trim($password) !== '') {
             $fields[self::FIELDS['password']] = Validate::password($password);
@@ -296,7 +300,7 @@ final class Mailbox
             $fields[self::FIELDS['quota']] = $quota;
         }
 
-        if (count($fields) === 3) {
+        if (count($fields) === count(self::identityFields($address))) {
             throw CwpException::input('Enter a new password or a new size.');
         }
 
@@ -312,13 +316,34 @@ final class Mailbox
      */
     public function delete(array $existing, string $address): void
     {
-        $address = self::assertOwned($existing, $address);
+        $this->client->call(
+            self::FUNCTION,
+            'del',
+            self::identityFields(self::assertOwned($existing, $address))
+        );
+    }
 
-        $this->client->call(self::FUNCTION, 'del', [
-            self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $address,
-            self::FIELDS['domain'] => self::split($address)['domain'],
-        ]);
+    /**
+     * How `del` and `udp` name an existing mailbox.
+     *
+     * `user` carries the whole address rather than the hosting account — see
+     * ADDRESS_IN_USER. The local part and domain go along too: CWP ignores fields an
+     * action does not use, as it did with `quota` on `add`, so including them costs
+     * nothing and covers the case where the route reads one of them as well.
+     *
+     * @return array<string,string>
+     *
+     * @throws CwpException
+     */
+    public static function identityFields(string $address): array
+    {
+        $parts = self::split($address);
+
+        return [
+            self::FIELDS['account'] => $address,
+            self::FIELDS['address'] => $parts['local'],
+            self::FIELDS['domain'] => $parts['domain'],
+        ];
     }
 
     /**
