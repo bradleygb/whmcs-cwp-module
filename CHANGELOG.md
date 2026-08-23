@@ -50,17 +50,18 @@ All notable changes to this module are documented here.
   the consumption beside it in kilobytes, in the same row — a 5,000 MB mailbox comes back
   as `5242880000`. Sizes are converted for display, and a size typed in megabytes is sent
   in bytes.
-### Known limitation
+- **The field names differ between actions on the same endpoint.** `add` composes an
+  address from `email` (the local part) and `domain`, and calls the password `pass`.
+  `udp` and `del` match an existing mailbox by its whole address in **`mailbox`**, send no
+  `domain` at all, and call the password **`password`**.
 
-- **Deleting a mailbox does not work, and the fault is in CWP.** `email`/`del` answers
-  HTTP 500 with an unhandled PHP notice — `Undefined offset: 1` in
-  `app/routes/modules/email.php` — for every request shape we could construct, with
-  `user`, `email` and `domain` each varied independently. An error that does not change
-  while every field you send does is an error about a field you are *not* sending, and
-  the route is ionCube-encoded, so its parameter names cannot be read.
+  Sending `add`'s names to the other two is not an error CWP reports: it reads a field
+  that is not there and dies with `Undefined offset: 1`, an unhandled PHP notice behind
+  an HTTP 500.
 
-  The Delete action is therefore not offered. `mailbox_delete` in `config.php` turns it
-  back on to retest after a CWP update. Creating and listing mailboxes are unaffected.
+- **A mailbox's size is set through Edit, not on creation.** `add` accepts a `quota` and
+  ignores it — a gigabyte was sent and the mailbox came back with no limit, without an
+  error — so the create form does not offer a size box. `udp` does apply one.
 - The mailbox list shows how much of each mailbox is used, not only its size.
 
 ### Security

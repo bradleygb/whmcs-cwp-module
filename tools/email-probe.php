@@ -68,7 +68,7 @@ echo "email/list for {$account} on {$host}:{$port}\n\n";
 
 try {
     $response = $client->call(Mailbox::FUNCTION, 'list', [
-        Mailbox::FIELDS['account'] => $account,
+        Mailbox::ACCOUNT => $account,
     ]);
 } catch (CwpException $e) {
     echo "  FAILED: ", $e->getMessage(), "\n\n";
@@ -77,7 +77,7 @@ try {
         echo "  The key is missing LIST on Emails.\n";
     } else {
         echo "  If the endpoint itself is wrong, correct Mailbox::FUNCTION.\n";
-        echo "  If the account field is wrong, correct Mailbox::FIELDS['account'].\n";
+        echo "  If the account field is wrong, correct Mailbox::ACCOUNT.\n";
     }
 
     exit(1);

@@ -107,31 +107,14 @@ return [
          * Let customers create, delete and re-password their own mailboxes from the
          * client area, rather than only listing them.
          *
-         * In practice this means creating them: CWP's endpoints for changing and
-         * deleting a mailbox are broken, and are behind `mailbox_modify` below.
-         *
-         * The size a new mailbox gets is CWP's own. Its add endpoint accepts a quota and
-         * ignores it, so the create form does not offer the field.
+         * A new mailbox takes CWP's own default size: its add endpoint accepts a quota
+         * and ignores it. The size is set afterwards through Edit, which does apply it.
          *
          * Listing mailboxes does not depend on this and is always available.
          *
-         * Requires ADD on Emails in addition to LIST.
+         * Requires ADD, UPD and DEL on Emails in addition to LIST.
          */
         'mailbox_management' => false,
-
-        /**
-         * Offer Edit and Delete on an existing mailbox.
-         *
-         * OFF because neither works: CWP's email/udp and email/del both answer HTTP 500
-         * with the same unhandled PHP notice — "Undefined offset: 1" in
-         * app/routes/modules/email.php — for every request shape, with `user`, `email`
-         * and `domain` each varied independently. That file is ionCube-encoded, so the
-         * parameter they are actually looking for cannot be found by reading it.
-         *
-         * Turn this on only to retest after a CWP update. Listing mailboxes and creating
-         * them are unaffected and work.
-         */
-        'mailbox_modify' => false,
 
         /**
          * Apply the product's inode, open-file and process limits after a package

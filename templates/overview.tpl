@@ -175,14 +175,12 @@
                         + '<td>' + esc(m.quota === null ? 'unlimited' : m.quota + ' MB') + '</td>'
                         + (data.manageable
                             ? '<td class="cwp-row-acts">'
-                                + (data.modifiable
-                                    ? '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
-                                        + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
-                                    : '')
+                                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
+                                + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
                                 + '</td>'
                             : '')
                         + '</tr>'
-                        + (data.modifiable
+                        + (data.manageable
                             ? '<tr id="cwp-edit-' + i + '" style="display:none;"><td colspan="4" class="cwp-edit">'
                                 + '<div class="cwp-edit-grid">'
                                 + '<div><label>New password <span class="cwp-hint">leave blank to keep</span></label>'
@@ -195,12 +193,6 @@
                             : '');
                 }).join('')
                 + '</tbody></table></div>';
-        }
-
-        if (data.manageable && !data.modifiable) {
-            html += '<p class="text-muted" style="margin-top:10px;font-size:12.5px;">'
-                + 'To change a mailbox password or remove a mailbox, open the control '
-                + 'panel or contact support.</p>';
         }
 
         return html + '<div id="cwp-mailbox-msg"></div></div>';

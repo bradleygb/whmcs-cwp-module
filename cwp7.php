@@ -560,9 +560,6 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
         return [
             'mailboxes' => $mailbox->all(),
             'manageable' => $manageable,
-            // CWP's email/udp and email/del both crash on every request shape we can
-            // construct, so neither is offered unless someone turns them on to retest.
-            'modifiable' => $manageable && (bool) $client->getOption('mailbox_modify', false),
         ];
     }
 
@@ -577,18 +574,8 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
             $account->detail(),
             ClientRequest::field($_POST, 'mailbox'),
             ClientRequest::field($_POST, 'domain'),
-            ClientRequest::field($_POST, 'password'),
-            ClientRequest::field($_POST, 'quota')
+            ClientRequest::field($_POST, 'password')
         )];
-    }
-
-    if ($operation === 'mailbox.update' || $operation === 'mailbox.delete') {
-        if (!$client->getOption('mailbox_modify', false)) {
-            throw CwpException::input(
-                'Mailboxes cannot be changed or removed from here. Please use the '
-                . 'control panel, or contact support.'
-            );
-        }
     }
 
     if ($operation === 'mailbox.update') {

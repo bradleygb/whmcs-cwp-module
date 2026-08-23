@@ -915,29 +915,26 @@ throwsKind('no mailboxes means nothing is owned',
 
 $box = new Mailbox(makeClient(), 'exampleh');
 
-$add = $box->createFields('sales', 'example.co.za', 'Str0ng-Pass!', '2048');
-ok('add names the hosting account', $add[Mailbox::FIELDS['account']] === 'exampleh');
+$add = $box->createFields('sales', 'example.co.za', 'Str0ng-Pass!');
+ok('add names the hosting account', $add[Mailbox::ACCOUNT] === 'exampleh');
 // CWP builds the address itself: sending sales@example.co.za with domain=example.co.za
 // produced salesexample.co.za@example.co.za on a live server.
 ok('add sends only the local part, never the whole address',
-    $add[Mailbox::FIELDS['address']] === 'sales');
-ok('add sends the domain separately', $add[Mailbox::FIELDS['domain']] === 'example.co.za');
-// Typed in megabytes because that is what CWP shows elsewhere; sent in bytes because
-// that is what this endpoint reports.
-ok('a size is sent in bytes', $add[Mailbox::FIELDS['quota']] === '2147483648');
-ok('a blank size falls back to the default, also in bytes',
-    $box->createFields('a', 'b.co', 'Str0ng-Pass!')[Mailbox::FIELDS['quota']]
-        === (string) (Mailbox::DEFAULT_QUOTA * Mailbox::MEGABYTE));
-
+    $add[Mailbox::ADD['local']] === 'sales');
+ok('add sends the domain separately', $add[Mailbox::ADD['domain']] === 'example.co.za');
+ok('add calls the password pass', $add[Mailbox::ADD['password']] === 'Str0ng-Pass!');
+// add accepts a quota and ignores it, so none is sent - Edit sets the size instead.
+ok('add sends no size at all', !isset($add['quota']));
 throwsKind('a weak password is refused before the call',
     function () use ($box) { $box->createFields('a', 'b.co', 'short'); },
     CwpException::KIND_INPUT);
-throwsKind('a non-numeric quota is refused',
-    function () use ($box) { $box->createFields('a', 'b.co', 'Str0ng-Pass!', '10GB'); },
-    CwpException::KIND_INPUT);
-throwsKind('a zero quota is refused - blank is how you ask for the default',
-    function () use ($box) { $box->createFields('a', 'b.co', 'Str0ng-Pass!', '0'); },
-    CwpException::KIND_INPUT);
+throwsKind('a non-numeric size is refused',
+    function () { Mailbox::quota('10GB'); }, CwpException::KIND_INPUT);
+throwsKind('a zero size is refused - blank is how you ask to leave it alone',
+    function () { Mailbox::quota('0'); }, CwpException::KIND_INPUT);
+// Typed in megabytes because that is what CWP shows elsewhere; sent in bytes because
+// that is what this endpoint reports.
+ok('a size is sent in bytes', Mailbox::quota('2048') === '2147483648');
 
 // Splitting a stored address back into the two parts every write needs.
 ok('an address splits into local part and domain',
@@ -950,46 +947,43 @@ throwsKind('an address with no local part is refused',
     function () { Mailbox::split('@example.co.za'); }, CwpException::KIND_INPUT);
 
 $edit = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '4096');
-// Shaped like add, which is the only write proven to work. CWP's del answered every
-// shape we could build with the same HTTP 500 - ErrorException, Undefined offset: 1 -
-// including a whole address in user. An error that never changes while every field you
-// send does is an error about a field you are not sending, and the file is ionCube.
-ok('update names the hosting account, as add does',
-    $edit[Mailbox::FIELDS['account']] === 'exampleh');
-ok('update sends the local part and domain alongside',
-    $edit[Mailbox::FIELDS['address']] === 'sales'
-        && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
+// udp and del name a mailbox differently from add: the whole address, in a field
+// called mailbox, and the password called password rather than pass. Sending add's
+// names instead made CWP read a field that was not there and die with
+// "Undefined offset: 1" behind an HTTP 500, four times over.
+ok('update names the hosting account', $edit[Mailbox::ACCOUNT] === 'exampleh');
+ok('update names the mailbox by its whole address, in mailbox',
+    $edit[Mailbox::MODIFY['mailbox']] === 'sales@example.co.za');
+ok('update calls the password password, not pass',
+    $edit[Mailbox::MODIFY['password']] === 'N3w-Pass!word');
+ok('update sends a size in bytes', $edit[Mailbox::MODIFY['quota']] === '4294967296');
+ok('update sends no domain - the address carries it',
+    !isset($edit[Mailbox::ADD['domain']]));
 
-$identity = $box->identityFields('sales@example.co.za');
-ok('update is shaped like add, the only write proven to work',
-    $identity === [
-        Mailbox::FIELDS['account'] => 'exampleh',
-        Mailbox::FIELDS['address'] => 'sales',
-        Mailbox::FIELDS['domain'] => 'example.co.za',
+ok('delete names a mailbox the same way update does',
+    $box->identityFields('sales@example.co.za') === [
+        Mailbox::ACCOUNT => 'exampleh',
+        Mailbox::MODIFY['mailbox'] => 'sales@example.co.za',
     ]);
-ok('update carries both changes when both are given',
-    $edit[Mailbox::FIELDS['password']] === 'N3w-Pass!word'
-        && $edit[Mailbox::FIELDS['quota']] === '4294967296');
 
 $sizeOnly = $box->updateFields('sales@example.co.za', '', '4096');
 ok('a blank password leaves the password alone',
-    !isset($sizeOnly[Mailbox::FIELDS['password']])
-        && $sizeOnly[Mailbox::FIELDS['quota']] === '4294967296');
+    !isset($sizeOnly[Mailbox::MODIFY['password']])
+        && $sizeOnly[Mailbox::MODIFY['quota']] === '4294967296');
 
 $passwordOnly = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '');
 ok('a blank size leaves the size alone',
-    !isset($passwordOnly[Mailbox::FIELDS['quota']])
-        && $passwordOnly[Mailbox::FIELDS['password']] === 'N3w-Pass!word');
+    !isset($passwordOnly[Mailbox::MODIFY['quota']])
+        && $passwordOnly[Mailbox::MODIFY['password']] === 'N3w-Pass!word');
 
 throwsKind('asking for neither change is refused rather than sent empty',
     function () use ($box) { $box->updateFields('sales@example.co.za', '', ''); },
     CwpException::KIND_INPUT);
 
-// Every write field goes through one map, so correcting the contract is one edit.
-$mapped = array_keys(Mailbox::FIELDS);
-sort($mapped);
-ok('the wire contract lives in one place',
-    $mapped === ['account', 'address', 'domain', 'password', 'quota']);
+// The two actions genuinely disagree, so each gets its own map rather than one that
+// has to be right for both.
+ok('add and modify name the password differently',
+    Mailbox::ADD['password'] === 'pass' && Mailbox::MODIFY['password'] === 'password');
 ok('mailbox.list is a read; the rest are not',
     !ClientRequest::mutates('mailbox.list')
     && ClientRequest::mutates('mailbox.create')
