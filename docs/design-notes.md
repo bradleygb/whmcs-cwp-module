@@ -324,6 +324,18 @@ encoded code and the key store is in neither `root_cwp` nor any file the API Man
 writes, so there is nothing further to inspect from outside. `apply_resource_limits` in
 `config.php` exists for exactly this server.
 
+**There is no way around it, and no need to look for one.** The permission is derived from
+the endpoint and action pair inside CWP, so no field in the request changes which one is
+checked. Nor is there a second route to the same limits: `Account Quota` and `Quota limit`
+have no update action at all, and inode, open files and processes are not package
+properties — `packages`/`add` and `/udp` carry disk, bandwidth and the account-count
+limits, nothing more.
+
+What is lost is narrower than it looks. The same three limits also ride on `account`/`add`
+as `inode`, `limit_nofile` and `limit_nproc`, checked as `accout_add`, so **provisioning
+applies them**. Only re-applying them on a package change is blocked, which matters solely
+when a product's limit values are edited after its accounts exist.
+
 The log also records **the API key in plaintext**, so it must be treated as a credential
 disclosure: switch debug off, delete the log, rotate the key. The module's own logging
 never writes the key; this is CWP's behaviour and cannot be prevented from this side.
