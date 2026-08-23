@@ -450,7 +450,6 @@ function cwp7_ClientArea(array $params)
         'templateVariables' => [
             'panelUrl' => $panelUrl,
             'username' => isset($params['username']) ? (string) $params['username'] : '',
-            'domain' => isset($params['domain']) ? (string) $params['domain'] : '',
             'serverHostname' => isset($params['serverhostname']) ? (string) $params['serverhostname'] : '',
             'ssoUrl' => $ssoUrl,
             'dataUrl' => $serviceId > 0

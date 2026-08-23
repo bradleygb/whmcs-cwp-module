@@ -810,6 +810,18 @@ $addons = $model['allowances'][4];
 ok('nothing used against unlimited still reads sensibly',
     $addons['text'] === '0 used of unlimited');
 
+// usedText and limitText are separate so a layout can weight them differently; text
+// stays one readable sentence for a tooltip. A label glued to its value was how the
+// first version of this shipped - "Disk Space1,257 MB of 5,000 MB".
+ok('the figure and its allowance are offered separately',
+    $disk['usedText'] === '1,258 MB' && $disk['limitText'] === '1,000 MB');
+ok('an unlimited allowance says so in its limit text',
+    $bandwidth['usedText'] === '579 MB' && $bandwidth['limitText'] === 'unlimited');
+ok('a zero limit says none included rather than 0',
+    $ftp['usedText'] === '1' && $ftp['limitText'] === 'none included');
+ok('a counted allowance is not given a unit',
+    $email['usedText'] === '4' && $email['limitText'] === '25');
+
 ok('domains are listed', count($model['domains']) === 1);
 ok('a domain carries its document root',
     $model['domains'][0]['path'] === '/home/exampleh/public_html');

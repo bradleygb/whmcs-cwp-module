@@ -87,13 +87,11 @@ final class Dashboard
     {
         $row = self::gauge($info, $usedKey, $limitKey, $label);
 
-        $row['text'] = self::describe(
+        return self::label(
             $row,
             self::formatMegabytes($row['used']),
             self::formatMegabytes($row['limit'])
         );
-
-        return $row;
     }
 
     /**
@@ -107,13 +105,11 @@ final class Dashboard
     {
         $row = self::gauge($info, $usedKey, $limitKey, $label);
 
-        $row['text'] = self::describe(
+        return self::label(
             $row,
             number_format($row['used']),
             number_format($row['limit'])
         );
-
-        return $row;
     }
 
     /**
@@ -152,19 +148,38 @@ final class Dashboard
     }
 
     /**
+     * Attach the display strings.
+     *
+     * `usedText` and `limitText` are separate so a layout can set them at different
+     * weights — the figure that matters and the allowance it sits against — while `text`
+     * stays a whole readable sentence for a tooltip or a screen reader.
+     *
      * @param array<string,mixed> $row
+     *
+     * @return array<string,mixed>
      */
-    private static function describe(array $row, string $used, string $limit): string
+    private static function label(array $row, string $used, string $limit): array
     {
+        $row['usedText'] = $used;
+
         if ($row['unlimited']) {
-            return $used . ' used of unlimited';
+            $row['limitText'] = 'unlimited';
+            $row['text'] = $used . ' used of unlimited';
+
+            return $row;
         }
 
         if ($row['none']) {
-            return $row['used'] > 0 ? $used . ' used, none included' : 'None included';
+            $row['limitText'] = 'none included';
+            $row['text'] = $row['used'] > 0 ? $used . ' used, none included' : 'None included';
+
+            return $row;
         }
 
-        return $used . ' of ' . $limit;
+        $row['limitText'] = $limit;
+        $row['text'] = $used . ' of ' . $limit;
+
+        return $row;
     }
 
     /**

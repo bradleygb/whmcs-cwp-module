@@ -190,7 +190,7 @@ ok('an unrouted operation opens no socket', count($GLOBALS['moduleLog']) === $be
 
 $tpl = file_get_contents(CWP7_DIR . '/templates/overview.tpl');
 $missing = [];
-foreach (['panelUrl', 'username', 'domain', 'serverHostname', 'ssoUrl', 'dataUrl'] as $v) {
+foreach (['panelUrl', 'username', 'serverHostname', 'ssoUrl', 'dataUrl'] as $v) {
     if (strpos($tpl, '$' . $v) === false) {
         $missing[] = $v;
     }
