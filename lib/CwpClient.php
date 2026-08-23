@@ -30,6 +30,12 @@ final class CwpClient
      * Numeric literals, not CURLE_* constants: the constant set varies by build, and
      * CURLE_PEER_FAILED_VERIFICATION is undefined on PHP 8.3.
      */
+    /**
+     * Characters of a failed response carried into the error message. Long enough for
+     * a framework error page to have got past its own boilerplate and said something.
+     */
+    const MAX_EXCERPT = 900;
+
     const TLS_VERIFY_ERRORS = [51, 60, 77, 83];
 
     /**
@@ -553,13 +559,20 @@ final class CwpClient
      */
     private function excerpt(string $body): string
     {
-        $body = trim(preg_replace('/\s+/', ' ', strip_tags($body)));
+        // Drop stylesheets and scripts before the tags around them. CWP's API runs on
+        // Slim, whose error page opens with an inline stylesheet long enough to fill the
+        // whole budget and push the actual error past the end of it.
+        $body = preg_replace('#<style[^>]*>.*?</style>#is', ' ', $body);
+        $body = preg_replace('#<script[^>]*>.*?</script>#is', ' ', (string) $body);
+        $body = trim(preg_replace('/\s+/', ' ', strip_tags((string) $body)));
 
         if ($body === '') {
             return '(empty body)';
         }
 
-        return $this->redact(strlen($body) > 300 ? substr($body, 0, 300) . '...' : $body);
+        return $this->redact(
+            strlen($body) > self::MAX_EXCERPT ? substr($body, 0, self::MAX_EXCERPT) . '...' : $body
+        );
     }
 
     /**
