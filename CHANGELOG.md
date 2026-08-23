@@ -30,6 +30,14 @@ All notable changes to this module are documented here.
 - **A mailbox's size can be changed**, not only its password. Each row has an Edit action
   covering both; leaving either blank leaves that one alone.
 
+### Security
+
+- **Stored password hashes are stripped from the Module Log.** `email`/`list` returns every
+  mailbox's hash in full and offers no way to suppress it, so logging the response
+  verbatim put the hash of every customer mailbox password into a file any WHMCS admin can
+  read. Both the scheme-prefixed form CWP sends and a bare crypt hash are removed, from
+  decoded payloads as well as raw text.
+
 ### Fixed
 
 - **CWP builds the address itself.** Its `email` field takes the part before the @, and it
@@ -38,6 +46,14 @@ All notable changes to this module are documented here.
   the local part and the domain apart.
 - **A quota of `0` is no limit**, as it is everywhere else in CWP, and no longer renders
   as a zero-megabyte mailbox.
+- **Mailbox sizes are shown in megabytes.** `email`/`list` reports the quota in bytes and
+  the consumption beside it in kilobytes, in the same row — a 5,000 MB mailbox comes back
+  as `5242880000`. Sizes are converted for display, and a size typed in megabytes is sent
+  in bytes.
+- **Deleting a mailbox answered HTTP 500.** `add` composes an address from a local part,
+  but `udp` and `del` identify one that already exists — and `list` names a mailbox only
+  by its whole address. Those two now send the full address.
+- The mailbox list shows how much of each mailbox is used, not only its size.
 
 ### Security
 

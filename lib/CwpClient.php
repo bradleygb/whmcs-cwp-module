@@ -518,11 +518,55 @@ final class CwpClient
     /** Remove the API key from text that originated at CWP. */
     private function redact(string $text): string
     {
-        if ($this->key === '') {
-            return $text;
+        if ($this->key !== '') {
+            $text = str_replace($this->key, '[api key redacted]', $text);
         }
 
-        return str_replace($this->key, '[api key redacted]', $text);
+        return self::redactHashes($text);
+    }
+
+    /**
+     * Strip stored password hashes out of anything on its way to the Module Log.
+     *
+     * email/list returns every mailbox's hash in full — `{SHA512-CRYPT}$6$…` — and CWP
+     * offers no way to ask it not to. Logging the response verbatim puts the hash of
+     * every customer mailbox password into a file any WHMCS admin can read, so they are
+     * removed here rather than at each call site.
+     *
+     * Both shapes are covered: the scheme-prefixed form CWP sends, and a bare crypt hash.
+     */
+    public static function redactHashes(string $text): string
+    {
+        $text = preg_replace('/\{[A-Z0-9-]{3,20}\}\$[^\s",}\]]+/', '[hash redacted]', $text);
+
+        return (string) preg_replace('/\$[0-9a-z]{1,2}\$[^\s",}\]]{8,}/', '[hash redacted]', (string) $text);
+    }
+
+    /**
+     * The same, applied through a decoded payload.
+     *
+     * WHMCS print_r's an array response into the log, so a hash nested in one would
+     * otherwise never meet redact().
+     *
+     * @param mixed $value
+     *
+     * @return mixed
+     */
+    public static function redactPayload($value)
+    {
+        if (is_string($value)) {
+            return self::redactHashes($value);
+        }
+
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        foreach ($value as $key => $item) {
+            $value[$key] = self::redactPayload($item);
+        }
+
+        return $value;
     }
 
     /**
@@ -554,7 +598,7 @@ final class CwpClient
             $action,
             $url . ' ' . http_build_query($safePost),
             $rawResponse === null ? '' : $this->redact($rawResponse),
-            is_string($processed) ? $this->redact($processed) : $processed,
+            is_string($processed) ? $this->redact($processed) : self::redactPayload($processed),
             $replaceVars
         );
     }

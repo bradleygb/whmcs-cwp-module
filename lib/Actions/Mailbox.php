@@ -51,15 +51,24 @@ final class Mailbox
     ];
 
     /**
-     * `address` carries the part before the @, never the whole address.
+     * How `address` is written differs by action, which is the trap here.
      *
-     * Confirmed live on 23 August 2026: sent `test@example.co.za` with
-     * `domain=example.co.za`, CWP dropped the @ and appended the domain to what was
-     * left, producing `testexample.co.za@example.co.za`. It builds the address itself.
+     * `add` takes the part before the @ and composes the address itself: sending
+     * `test@example.co.za` with `domain=example.co.za` produced
+     * `testexample.co.za@example.co.za`.
+     *
+     * `del` takes the whole address. Sending it a local part answered HTTP 500 — and
+     * `list` identifies each mailbox by its full address, with no separate local part,
+     * so that is the only identifier it has. `udp` is assumed to match `del`.
+     *
+     * Both observed live on 23 August 2026.
      */
-    const ADDRESS_IS_LOCAL_PART = true;
+    const COMPOSES_ADDRESS = ['add'];
 
-    /** Quota in megabytes given to a new mailbox when the customer names none. */
+    /** Bytes in a megabyte. CWP reports quota in bytes and consumption in kilobytes. */
+    const MEGABYTE = 1048576;
+
+    /** Megabytes given to a new mailbox when the customer names none. */
     const DEFAULT_QUOTA = 1024;
 
     /** @var CwpClient */
@@ -116,16 +125,19 @@ final class Mailbox
                 continue;
             }
 
-            $quota = Usage::pick($row, ['quota', 'quota_mb', 'disk_quota', 'limit']);
-            $used = Usage::pick($row, ['used', 'usage', 'disk_used', 'space_usage']);
+            // Reported in bytes: a 5,000 MB mailbox comes back as 5242880000.
+            $quota = self::number(Usage::pick($row, ['quota', 'quota_mb', 'disk_quota', 'limit']));
 
-            $quota = $quota === null ? null : (float) preg_replace('/[^0-9.\-]/', '', (string) $quota);
+            // Reported in kilobytes, unlike the quota beside it. A mailbox on that same
+            // 5,000 MB quota reported 72487.35, which is 70 MB — as megabytes it would be
+            // fourteen times its own limit.
+            $used = self::number(Usage::pick($row, ['consumed', 'used', 'usage', 'disk_used']));
 
             $mailboxes[] = [
                 'address' => strtolower(trim((string) $address)),
-                // CWP writes 0 and -1 alike for "no limit", as it does on packages.
-                'quota' => ($quota === null || $quota <= 0) ? null : $quota,
-                'used' => $used === null ? null : (float) preg_replace('/[^0-9.\-]/', '', (string) $used),
+                // 0 is no limit here, as it is on packages.
+                'quota' => ($quota === null || $quota <= 0) ? null : round($quota / self::MEGABYTE, 1),
+                'used' => $used === null ? null : round($used / 1024, 1),
             ];
         }
 
@@ -174,12 +186,15 @@ final class Mailbox
             self::FIELDS['address'] => $localPart,
             self::FIELDS['domain'] => $domain,
             self::FIELDS['password'] => Validate::password($password),
-            self::FIELDS['quota'] => self::quota($quota, (string) self::DEFAULT_QUOTA),
+            self::FIELDS['quota'] => self::quota($quota, (string) (self::DEFAULT_QUOTA * self::MEGABYTE)),
         ];
     }
 
     /**
-     * A mailbox size in megabytes.
+     * A mailbox size, taken in megabytes and sent in bytes.
+     *
+     * The customer types megabytes because that is what CWP shows everywhere else; the
+     * endpoint reports bytes, so that is assumed to be what it wants.
      *
      * @throws CwpException
      */
@@ -195,7 +210,25 @@ final class Mailbox
             throw CwpException::input('Enter a mailbox size in megabytes, or leave it blank.');
         }
 
-        return $quota;
+        return (string) ((int) $quota * self::MEGABYTE);
+    }
+
+    /**
+     * A CWP figure as a number, or null when it sent nothing.
+     *
+     * @param mixed $value
+     *
+     * @return float|null
+     */
+    private static function number($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $clean = preg_replace('/[^0-9.\-]/', '', (string) $value);
+
+        return is_string($clean) && is_numeric($clean) ? (float) $clean : null;
     }
 
     /**
@@ -247,12 +280,10 @@ final class Mailbox
      */
     public function updateFields(string $address, string $password, string $quota): array
     {
-        $parts = self::split($address);
-
         $fields = [
             self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $parts['local'],
-            self::FIELDS['domain'] => $parts['domain'],
+            self::FIELDS['address'] => $address,
+            self::FIELDS['domain'] => self::split($address)['domain'],
         ];
 
         if (trim($password) !== '') {
@@ -281,12 +312,12 @@ final class Mailbox
      */
     public function delete(array $existing, string $address): void
     {
-        $parts = self::split(self::assertOwned($existing, $address));
+        $address = self::assertOwned($existing, $address);
 
         $this->client->call(self::FUNCTION, 'del', [
             self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $parts['local'],
-            self::FIELDS['domain'] => $parts['domain'],
+            self::FIELDS['address'] => $address,
+            self::FIELDS['domain'] => self::split($address)['domain'],
         ]);
     }
 

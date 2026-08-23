@@ -853,12 +853,31 @@ ok('dashboard.list is classified as a read, so it needs no token',
 
 echo "\nMailboxes\n";
 
+// email/list returns every mailbox's password hash in full, and CWP offers no way to ask
+// it not to. Logging the response verbatim would put the hash of every customer mailbox
+// password into a file any WHMCS admin can read.
+$hashed = [
+    'email' => 'a@b.co',
+    'pass' => '{SHA512-CRYPT}$6$e36e082236190bac$oHjLVlqLQpRa9qUrd.1wNo474J4nsX9sTkw3lhbRxu0LSzuyIXtsH6SWtGW1',
+];
+$logged = CwpClient::redactPayload([$hashed]);
+ok('a stored hash is stripped before it reaches the log',
+    strpos(json_encode($logged), 'SHA512-CRYPT') === false
+        && strpos(json_encode($logged), 'e36e082236190bac') === false);
+ok('the address beside it survives redaction', $logged[0]['email'] === 'a@b.co');
+ok('a bare crypt hash is stripped too',
+    strpos(CwpClient::redactHashes('x $6$abcdefgh$ijklmnopqrstuvwx y'), 'ijklmnop') === false);
+ok('ordinary money and text are left alone',
+    CwpClient::redactHashes('R0.00 ZAR and $5 each') === 'R0.00 ZAR and $5 each');
+
 // CWP names the same column differently between endpoints, so each is read from a list
 // of candidates. The exact names email/list uses are not documented anywhere we have -
 // tools/email-probe.php reads them off a live server.
+// Captured from a live server on 23 August 2026. The units are the point: a quota arrives in
+// bytes and consumption in kilobytes, in the same row.
 $mailboxRows = Mailbox::rows([
-    ['email' => 'Sales@Example.co.za', 'quota' => '1024', 'used' => '12.5'],
-    ['email_account' => 'info@example.co.za', 'quota_mb' => 2048],
+    ['email' => 'Sales@Example.co.za', 'quota' => 5242880000, 'consumed' => 72487.35],
+    ['email_account' => 'info@example.co.za', 'quota_mb' => 1048576],
     ['address' => 'admin@example.co.za'],
     ['something' => 'unrecognisable'],
     'not an array',
@@ -868,13 +887,16 @@ ok('a mailbox is read however the address column is named', count($mailboxRows) 
 ok('addresses are lowercased', $mailboxRows[0]['address'] === 'admin@example.co.za');
 ok('mailboxes come back sorted', $mailboxRows[1]['address'] === 'info@example.co.za'
     && $mailboxRows[2]['address'] === 'sales@example.co.za');
-ok('a quota is read from any of its names', $mailboxRows[1]['quota'] === 2048.0);
+// 5242880000 bytes is exactly 5,000 MB, which is this account's own disk quota.
+ok('a quota in bytes is shown in megabytes', $mailboxRows[2]['quota'] === 5000.0);
+ok('a quota is read from any of its names', $mailboxRows[1]['quota'] === 1.0);
 ok('a missing quota reads as no limit', $mailboxRows[0]['quota'] === null);
 // A live mailbox came back with quota 0, which CWP means as no limit - the same as it
 // does on packages. Printing "0 MB" against a working mailbox is how that first showed.
 ok('a zero quota is no limit, not a zero-byte mailbox',
     Mailbox::rows([['email' => 'a@b.co', 'quota' => '0']])[0]['quota'] === null);
-ok('usage is read when present', $mailboxRows[2]['used'] === 12.5);
+// 72487.35 read as megabytes would be fourteen times the mailbox's own limit.
+ok('consumption in kilobytes is shown in megabytes', $mailboxRows[2]['used'] === 70.8);
 ok('an unreadable row is skipped rather than fataling', Mailbox::rows(['x', 1, null]) === []);
 
 // The account is fixed by WHMCS, but the address is not - and the key behind it reaches
@@ -900,10 +922,12 @@ ok('add names the hosting account', $add[Mailbox::FIELDS['account']] === 'exampl
 ok('add sends only the local part, never the whole address',
     $add[Mailbox::FIELDS['address']] === 'sales');
 ok('add sends the domain separately', $add[Mailbox::FIELDS['domain']] === 'example.co.za');
-ok('add carries the quota given', $add[Mailbox::FIELDS['quota']] === '2048');
-ok('a blank quota falls back to the default',
+// Typed in megabytes because that is what CWP shows elsewhere; sent in bytes because
+// that is what this endpoint reports.
+ok('a size is sent in bytes', $add[Mailbox::FIELDS['quota']] === '2147483648');
+ok('a blank size falls back to the default, also in bytes',
     $box->createFields('a', 'b.co', 'Str0ng-Pass!')[Mailbox::FIELDS['quota']]
-        === (string) Mailbox::DEFAULT_QUOTA);
+        === (string) (Mailbox::DEFAULT_QUOTA * Mailbox::MEGABYTE));
 
 throwsKind('a weak password is refused before the call',
     function () use ($box) { $box->createFields('a', 'b.co', 'short'); },
@@ -926,14 +950,20 @@ throwsKind('an address with no local part is refused',
     function () { Mailbox::split('@example.co.za'); }, CwpException::KIND_INPUT);
 
 $edit = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '4096');
-ok('update sends the local part and domain apart',
-    $edit[Mailbox::FIELDS['address']] === 'sales' && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
+// add composes an address from a local part; udp and del identify one that exists, and
+// list only ever names a mailbox by its whole address. Sending del a local part answered
+// HTTP 500.
+ok('update names the whole address, unlike add',
+    $edit[Mailbox::FIELDS['address']] === 'sales@example.co.za'
+        && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
 ok('update carries both changes when both are given',
-    $edit[Mailbox::FIELDS['password']] === 'N3w-Pass!word' && $edit[Mailbox::FIELDS['quota']] === '4096');
+    $edit[Mailbox::FIELDS['password']] === 'N3w-Pass!word'
+        && $edit[Mailbox::FIELDS['quota']] === '4294967296');
 
 $sizeOnly = $box->updateFields('sales@example.co.za', '', '4096');
 ok('a blank password leaves the password alone',
-    !isset($sizeOnly[Mailbox::FIELDS['password']]) && $sizeOnly[Mailbox::FIELDS['quota']] === '4096');
+    !isset($sizeOnly[Mailbox::FIELDS['password']])
+        && $sizeOnly[Mailbox::FIELDS['quota']] === '4294967296');
 
 $passwordOnly = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '');
 ok('a blank size leaves the size alone',

@@ -169,12 +169,13 @@
             html += '<p class="text-muted">No email accounts yet.</p>';
         } else {
             html += '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
-                + '<thead><tr><th>Address</th><th>Size</th>'
+                + '<thead><tr><th>Address</th><th>Used</th><th>Size</th>'
                 + (data.manageable ? '<th></th>' : '') + '</tr></thead><tbody>'
                 + rows.map(function (m, i) {
                     var address = esc(m.address);
 
                     return '<tr><td>' + address + '</td>'
+                        + '<td>' + esc(m.used === null ? '' : m.used + ' MB') + '</td>'
                         + '<td>' + esc(m.quota === null ? 'unlimited' : m.quota + ' MB') + '</td>'
                         + (data.manageable
                             ? '<td class="cwp-row-acts">'
@@ -184,7 +185,7 @@
                             : '')
                         + '</tr>'
                         + (data.manageable
-                            ? '<tr id="cwp-edit-' + i + '" style="display:none;"><td colspan="3" class="cwp-edit">'
+                            ? '<tr id="cwp-edit-' + i + '" style="display:none;"><td colspan="4" class="cwp-edit">'
                                 + '<div class="cwp-edit-grid">'
                                 + '<div><label>New password <span class="cwp-hint">leave blank to keep</span></label>'
                                 + '<input class="form-control input-sm form-control-sm cwp-edit-pw" type="password" autocomplete="new-password"></div>'
