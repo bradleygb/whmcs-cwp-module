@@ -870,6 +870,27 @@ ok('a bare crypt hash is stripped too',
 ok('ordinary money and text are left alone',
     CwpClient::redactHashes('R0.00 ZAR and $5 each') === 'R0.00 ZAR and $5 each');
 
+// CWP calls the same thing pass on email/add and password on email/udp. Masking a named
+// list of fields missed the second and put a customer's mailbox password into the Module
+// Log in cleartext, so the rule is a shape now, not a list.
+$secret = ['pass', 'password', 'passwd', 'newpassword', 'key', 'apikey', 'token', 'secret', 'hash'];
+$plain = ['user', 'email', 'mailbox', 'domain', 'quota', 'action', 'timer'];
+$maskedAll = true;
+$keptAll = true;
+foreach ($secret as $field) {
+    if (!CwpClient::isSecretField($field)) {
+        $maskedAll = false;
+    }
+}
+foreach ($plain as $field) {
+    if (CwpClient::isSecretField($field)) {
+        $keptAll = false;
+    }
+}
+ok('every password-shaped field is masked, whatever CWP calls it', $maskedAll);
+ok('the fields worth reading in a log are still readable', $keptAll);
+ok('the check ignores case', CwpClient::isSecretField('Password'));
+
 // CWP names the same column differently between endpoints, so each is read from a list
 // of candidates. The exact names email/list uses are not documented anywhere we have -
 // tools/email-probe.php reads them off a live server.

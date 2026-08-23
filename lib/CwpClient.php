@@ -538,6 +538,24 @@ final class CwpClient
     }
 
     /**
+     * Does this field name hold something that must not be logged?
+     *
+     * A shape rather than a list, because the list has already been wrong once.
+     */
+    public static function isSecretField(string $field): bool
+    {
+        $field = strtolower($field);
+
+        foreach (['pass', 'secret', 'token', 'key', 'hash'] as $marker) {
+            if (strpos($field, $marker) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Strip stored password hashes out of anything on its way to the Module Log.
      *
      * email/list returns every mailbox's hash in full — `{SHA512-CRYPT}$6$…` — and CWP
@@ -617,13 +635,19 @@ final class CwpClient
 
         $safePost = $post;
         $safePost['key'] = '***';
-        if (isset($safePost['pass'])) {
-            $safePost['pass'] = '***';
-        }
-
         $replaceVars = [$this->key];
-        if (isset($post['pass']) && $post['pass'] !== '') {
-            $replaceVars[] = (string) $post['pass'];
+
+        // Every field whose name looks like a password, not a named list of them. CWP
+        // calls the same thing `pass` on email/add and `password` on email/udp, and
+        // masking only the first put a customer's mailbox password into the Module Log
+        // in cleartext. The next endpoint will name it something else again.
+        foreach ($post as $field => $value) {
+            if (!self::isSecretField((string) $field) || !is_scalar($value) || $value === '') {
+                continue;
+            }
+
+            $safePost[$field] = '***';
+            $replaceVars[] = (string) $value;
         }
 
         logModuleCall(

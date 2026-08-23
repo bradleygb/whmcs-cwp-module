@@ -32,6 +32,13 @@ All notable changes to this module are documented here.
 
 ### Security
 
+- **Every password-shaped field is masked in the Module Log, whatever CWP calls it.**
+  The masking named one field, `pass`. CWP's `email`/`udp` calls the same thing
+  `password`, so a mailbox password a customer had just chosen was written to the log in
+  cleartext. Masking is now by the shape of the field name — anything containing `pass`,
+  `secret`, `token`, `key` or `hash` — rather than a list that has to be extended for
+  every endpoint.
+
 - **Stored password hashes are stripped from the Module Log.** `email`/`list` returns every
   mailbox's hash in full and offers no way to suppress it, so logging the response
   verbatim put the hash of every customer mailbox password into a file any WHMCS admin can
