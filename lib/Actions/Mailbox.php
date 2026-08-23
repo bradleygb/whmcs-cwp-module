@@ -5,12 +5,12 @@
  * Drives CWP's /v1/email endpoint so mailboxes can be listed and managed from the client
  * area rather than the panel.
  *
- * READING is confirmed against a live server. WRITING is not: the field names CWP expects
- * on add, udp and del are taken from its conventions elsewhere and have never been read
- * out of its Interactive Documentation. They are gathered in FIELDS below so a correction
- * is one edit, and every write is gated behind `mailbox_management` in config.php, which
- * is off until the contract is confirmed. Guessing a contract has cost this module a
- * release once already — changepack takes an id and answers a bare Error to a name.
+ * The contract here was established by observation, not documentation — CWP's Interactive
+ * Documentation for this endpoint has never been available to us. Reading works. Writing
+ * is confirmed as far as one live creation proved: `address` carries the local part and
+ * CWP appends the domain itself. The remaining field names in FIELDS are still taken from
+ * CWP's conventions elsewhere, which is why writes stay behind `mailbox_management` in
+ * config.php. Correcting any of them is one edit to that map.
  *
  * @package cwp7
  * @version 2.4.0
@@ -49,6 +49,15 @@ final class Mailbox
         'password' => 'pass',
         'quota'    => 'quota',
     ];
+
+    /**
+     * `address` carries the part before the @, never the whole address.
+     *
+     * Confirmed live on 23 August 2026: sent `test@example.co.za` with
+     * `domain=example.co.za`, CWP dropped the @ and appended the domain to what was
+     * left, producing `testexample.co.za@example.co.za`. It builds the address itself.
+     */
+    const ADDRESS_IS_LOCAL_PART = true;
 
     /** Quota in megabytes given to a new mailbox when the customer names none. */
     const DEFAULT_QUOTA = 1024;
@@ -110,9 +119,12 @@ final class Mailbox
             $quota = Usage::pick($row, ['quota', 'quota_mb', 'disk_quota', 'limit']);
             $used = Usage::pick($row, ['used', 'usage', 'disk_used', 'space_usage']);
 
+            $quota = $quota === null ? null : (float) preg_replace('/[^0-9.\-]/', '', (string) $quota);
+
             $mailboxes[] = [
                 'address' => strtolower(trim((string) $address)),
-                'quota' => $quota === null ? null : (float) preg_replace('/[^0-9.\-]/', '', (string) $quota),
+                // CWP writes 0 and -1 alike for "no limit", as it does on packages.
+                'quota' => ($quota === null || $quota <= 0) ? null : $quota,
                 'used' => $used === null ? null : (float) preg_replace('/[^0-9.\-]/', '', (string) $used),
             ];
         }
@@ -137,11 +149,12 @@ final class Mailbox
      */
     public function create(array $detail, string $localPart, string $domain, string $password, string $quota = ''): string
     {
-        $address = Validate::localPart($localPart) . '@' . Validate::ownedDomain($detail, $domain);
+        $localPart = Validate::localPart($localPart);
+        $domain = Validate::ownedDomain($detail, $domain);
 
-        $this->client->call(self::FUNCTION, 'add', $this->createFields($address, $domain, $password, $quota));
+        $this->client->call(self::FUNCTION, 'add', $this->createFields($localPart, $domain, $password, $quota));
 
-        return $address;
+        return $localPart . '@' . $domain;
     }
 
     /**
@@ -154,39 +167,109 @@ final class Mailbox
      *
      * @throws CwpException
      */
-    public function createFields(string $address, string $domain, string $password, string $quota = ''): array
+    public function createFields(string $localPart, string $domain, string $password, string $quota = ''): array
     {
-        $quota = trim($quota);
-
-        if ($quota !== '' && (!ctype_digit($quota) || (int) $quota < 1)) {
-            throw CwpException::input('Enter a mailbox size in megabytes, or leave it blank.');
-        }
-
         return [
             self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $address,
+            self::FIELDS['address'] => $localPart,
             self::FIELDS['domain'] => $domain,
             self::FIELDS['password'] => Validate::password($password),
-            self::FIELDS['quota'] => $quota === '' ? (string) self::DEFAULT_QUOTA : $quota,
+            self::FIELDS['quota'] => self::quota($quota, (string) self::DEFAULT_QUOTA),
         ];
     }
 
     /**
-     * Change a mailbox password.
+     * A mailbox size in megabytes.
+     *
+     * @throws CwpException
+     */
+    public static function quota(string $quota, string $default = ''): string
+    {
+        $quota = trim($quota);
+
+        if ($quota === '') {
+            return $default;
+        }
+
+        if (!ctype_digit($quota) || (int) $quota < 1) {
+            throw CwpException::input('Enter a mailbox size in megabytes, or leave it blank.');
+        }
+
+        return $quota;
+    }
+
+    /**
+     * Split a stored address back into the parts CWP wants on the wire.
+     *
+     * @return array{local:string, domain:string}
+     *
+     * @throws CwpException
+     */
+    public static function split(string $address): array
+    {
+        $at = strrpos($address, '@');
+
+        if ($at === false || $at === 0 || $at === strlen($address) - 1) {
+            throw CwpException::input('That mailbox address is not one this page can work with.');
+        }
+
+        return [
+            'local' => substr($address, 0, $at),
+            'domain' => substr($address, $at + 1),
+        ];
+    }
+
+    /**
+     * Change a mailbox's password, its size, or both.
+     *
+     * A blank password leaves the password alone, and a blank size leaves the size
+     * alone; asking for neither is refused rather than sent as an empty update.
      *
      * @param array<int,array<string,mixed>> $existing this account's mailboxes
      *
      * @throws CwpException
      */
-    public function changePassword(array $existing, string $address, string $password): void
+    public function update(array $existing, string $address, string $password, string $quota): void
     {
-        $address = self::assertOwned($existing, $address);
+        $this->client->call(
+            self::FUNCTION,
+            'udp',
+            $this->updateFields(self::assertOwned($existing, $address), $password, $quota)
+        );
+    }
 
-        $this->client->call(self::FUNCTION, 'udp', [
+    /**
+     * The POST fields for email/udp.
+     *
+     * @return array<string,string>
+     *
+     * @throws CwpException
+     */
+    public function updateFields(string $address, string $password, string $quota): array
+    {
+        $parts = self::split($address);
+
+        $fields = [
             self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $address,
-            self::FIELDS['password'] => Validate::password($password),
-        ]);
+            self::FIELDS['address'] => $parts['local'],
+            self::FIELDS['domain'] => $parts['domain'],
+        ];
+
+        if (trim($password) !== '') {
+            $fields[self::FIELDS['password']] = Validate::password($password);
+        }
+
+        $quota = self::quota($quota);
+
+        if ($quota !== '') {
+            $fields[self::FIELDS['quota']] = $quota;
+        }
+
+        if (count($fields) === 3) {
+            throw CwpException::input('Enter a new password or a new size.');
+        }
+
+        return $fields;
     }
 
     /**
@@ -198,11 +281,12 @@ final class Mailbox
      */
     public function delete(array $existing, string $address): void
     {
-        $address = self::assertOwned($existing, $address);
+        $parts = self::split(self::assertOwned($existing, $address));
 
         $this->client->call(self::FUNCTION, 'del', [
             self::FIELDS['account'] => $this->account,
-            self::FIELDS['address'] => $address,
+            self::FIELDS['address'] => $parts['local'],
+            self::FIELDS['domain'] => $parts['domain'],
         ]);
     }
 

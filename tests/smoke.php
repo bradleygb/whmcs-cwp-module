@@ -869,8 +869,11 @@ ok('addresses are lowercased', $mailboxRows[0]['address'] === 'admin@example.co.
 ok('mailboxes come back sorted', $mailboxRows[1]['address'] === 'info@example.co.za'
     && $mailboxRows[2]['address'] === 'sales@example.co.za');
 ok('a quota is read from any of its names', $mailboxRows[1]['quota'] === 2048.0);
-ok('a missing quota is null, not zero - they mean different things',
-    $mailboxRows[0]['quota'] === null);
+ok('a missing quota reads as no limit', $mailboxRows[0]['quota'] === null);
+// A live mailbox came back with quota 0, which CWP means as no limit - the same as it
+// does on packages. Printing "0 MB" against a working mailbox is how that first showed.
+ok('a zero quota is no limit, not a zero-byte mailbox',
+    Mailbox::rows([['email' => 'a@b.co', 'quota' => '0']])[0]['quota'] === null);
 ok('usage is read when present', $mailboxRows[2]['used'] === 12.5);
 ok('an unreadable row is skipped rather than fataling', Mailbox::rows(['x', 1, null]) === []);
 
@@ -890,22 +893,55 @@ throwsKind('no mailboxes means nothing is owned',
 
 $box = new Mailbox(makeClient(), 'exampleh');
 
-$add = $box->createFields('sales@example.co.za', 'example.co.za', 'Str0ng-Pass!', '2048');
+$add = $box->createFields('sales', 'example.co.za', 'Str0ng-Pass!', '2048');
 ok('add names the hosting account', $add[Mailbox::FIELDS['account']] === 'exampleh');
-ok('add carries the full address', $add[Mailbox::FIELDS['address']] === 'sales@example.co.za');
+// CWP builds the address itself: sending sales@example.co.za with domain=example.co.za
+// produced salesexample.co.za@example.co.za on a live server.
+ok('add sends only the local part, never the whole address',
+    $add[Mailbox::FIELDS['address']] === 'sales');
+ok('add sends the domain separately', $add[Mailbox::FIELDS['domain']] === 'example.co.za');
 ok('add carries the quota given', $add[Mailbox::FIELDS['quota']] === '2048');
 ok('a blank quota falls back to the default',
-    $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!')[Mailbox::FIELDS['quota']]
+    $box->createFields('a', 'b.co', 'Str0ng-Pass!')[Mailbox::FIELDS['quota']]
         === (string) Mailbox::DEFAULT_QUOTA);
 
 throwsKind('a weak password is refused before the call',
-    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'short'); },
+    function () use ($box) { $box->createFields('a', 'b.co', 'short'); },
     CwpException::KIND_INPUT);
 throwsKind('a non-numeric quota is refused',
-    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!', '10GB'); },
+    function () use ($box) { $box->createFields('a', 'b.co', 'Str0ng-Pass!', '10GB'); },
     CwpException::KIND_INPUT);
 throwsKind('a zero quota is refused - blank is how you ask for the default',
-    function () use ($box) { $box->createFields('a@b.co', 'b.co', 'Str0ng-Pass!', '0'); },
+    function () use ($box) { $box->createFields('a', 'b.co', 'Str0ng-Pass!', '0'); },
+    CwpException::KIND_INPUT);
+
+// Splitting a stored address back into the two parts every write needs.
+ok('an address splits into local part and domain',
+    Mailbox::split('sales@example.co.za') === ['local' => 'sales', 'domain' => 'example.co.za']);
+ok('only the last @ separates them',
+    Mailbox::split('odd@name@example.co.za')['local'] === 'odd@name');
+throwsKind('an address with no domain is refused',
+    function () { Mailbox::split('sales'); }, CwpException::KIND_INPUT);
+throwsKind('an address with no local part is refused',
+    function () { Mailbox::split('@example.co.za'); }, CwpException::KIND_INPUT);
+
+$edit = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '4096');
+ok('update sends the local part and domain apart',
+    $edit[Mailbox::FIELDS['address']] === 'sales' && $edit[Mailbox::FIELDS['domain']] === 'example.co.za');
+ok('update carries both changes when both are given',
+    $edit[Mailbox::FIELDS['password']] === 'N3w-Pass!word' && $edit[Mailbox::FIELDS['quota']] === '4096');
+
+$sizeOnly = $box->updateFields('sales@example.co.za', '', '4096');
+ok('a blank password leaves the password alone',
+    !isset($sizeOnly[Mailbox::FIELDS['password']]) && $sizeOnly[Mailbox::FIELDS['quota']] === '4096');
+
+$passwordOnly = $box->updateFields('sales@example.co.za', 'N3w-Pass!word', '');
+ok('a blank size leaves the size alone',
+    !isset($passwordOnly[Mailbox::FIELDS['quota']])
+        && $passwordOnly[Mailbox::FIELDS['password']] === 'N3w-Pass!word');
+
+throwsKind('asking for neither change is refused rather than sent empty',
+    function () use ($box) { $box->updateFields('sales@example.co.za', '', ''); },
     CwpException::KIND_INPUT);
 
 // Every write field goes through one map, so correcting the contract is one edit.
@@ -917,7 +953,7 @@ ok('mailbox.list is a read; the rest are not',
     !ClientRequest::mutates('mailbox.list')
     && ClientRequest::mutates('mailbox.create')
     && ClientRequest::mutates('mailbox.delete')
-    && ClientRequest::mutates('mailbox.password'));
+    && ClientRequest::mutates('mailbox.update'));
 
 echo "\nUsername normalisation (creation only)\n";
 

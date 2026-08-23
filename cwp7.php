@@ -577,8 +577,13 @@ function cwp7_mailboxOperation(string $operation, Account $account, array $param
         )];
     }
 
-    if ($operation === 'mailbox.password') {
-        $mailbox->changePassword($mailbox->all(), $address, ClientRequest::field($_POST, 'password'));
+    if ($operation === 'mailbox.update') {
+        $mailbox->update(
+            $mailbox->all(),
+            $address,
+            ClientRequest::field($_POST, 'password'),
+            ClientRequest::field($_POST, 'quota')
+        );
 
         return ['address' => $address];
     }

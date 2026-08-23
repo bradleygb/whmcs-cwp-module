@@ -80,6 +80,10 @@
 .cwp-msg-bad { background: rgba(212, 59, 63, .12); color: #d43b3f; }
 .cwp-row-acts { white-space: nowrap; text-align: right; }
 .cwp-row-acts button { margin-left: 6px; }
+.cwp-mailbox-form input::placeholder, .cwp-edit input::placeholder { opacity: .4; font-style: italic; }
+.cwp-hint { font-weight: 400; opacity: .55; }
+.cwp-edit { padding: 12px 14px; background: rgba(128, 128, 128, .07); }
+.cwp-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
 @media (max-width: 480px) {
     .cwp-account-actions { flex-direction: column; align-items: stretch; }
     .cwp-account-buttons a { display: block; margin: 6px 0 0; }
@@ -128,8 +132,12 @@
             + '<tbody>' + body + '</tbody></table></div></div>';
     }
 
+    var DEFAULT_QUOTA = '1024';
+
+    // label is markup, not text: the callers build it. Values are escaped where they
+    // are interpolated, which is what matters.
     function fieldRow(label, name, type, extra) {
-        return '<div><label for="cwp-' + name + '">' + esc(label) + '</label>'
+        return '<div><label for="cwp-' + name + '">' + label + '</label>'
             + '<input class="form-control input-sm form-control-sm" id="cwp-' + name + '"'
             + ' name="' + name + '" type="' + type + '"' + (extra || '') + '></div>';
     }
@@ -151,7 +159,8 @@
                 }).join('')
                 + '</select></div>'
                 + fieldRow('Password', 'password', 'password', ' autocomplete="new-password"')
-                + fieldRow('Size (MB)', 'quota', 'text', ' placeholder="1024"')
+                + fieldRow('Size (MB) <span class="cwp-hint">optional</span>', 'quota', 'text',
+                    ' placeholder="' + DEFAULT_QUOTA + ' if left blank"')
                 + '<div><button type="button" class="btn btn-primary btn-block" id="cwp-create">Create Mailbox</button></div>'
                 + '</div>';
         }
@@ -162,16 +171,29 @@
             html += '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
                 + '<thead><tr><th>Address</th><th>Size</th>'
                 + (data.manageable ? '<th></th>' : '') + '</tr></thead><tbody>'
-                + rows.map(function (m) {
-                    return '<tr><td>' + esc(m.address) + '</td>'
+                + rows.map(function (m, i) {
+                    var address = esc(m.address);
+
+                    return '<tr><td>' + address + '</td>'
                         + '<td>' + esc(m.quota === null ? 'unlimited' : m.quota + ' MB') + '</td>'
                         + (data.manageable
                             ? '<td class="cwp-row-acts">'
-                                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-pw" data-address="' + esc(m.address) + '">Password</button>'
-                                + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + esc(m.address) + '">Delete</button>'
+                                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-edit-open" data-row="' + i + '">Edit</button>'
+                                + '<button type="button" class="btn btn-danger btn-xs btn-sm cwp-del" data-address="' + address + '">Delete</button>'
                                 + '</td>'
                             : '')
-                        + '</tr>';
+                        + '</tr>'
+                        + (data.manageable
+                            ? '<tr id="cwp-edit-' + i + '" style="display:none;"><td colspan="3" class="cwp-edit">'
+                                + '<div class="cwp-edit-grid">'
+                                + '<div><label>New password <span class="cwp-hint">leave blank to keep</span></label>'
+                                + '<input class="form-control input-sm form-control-sm cwp-edit-pw" type="password" autocomplete="new-password"></div>'
+                                + '<div><label>Size (MB) <span class="cwp-hint">leave blank to keep</span></label>'
+                                + '<input class="form-control input-sm form-control-sm cwp-edit-quota" type="text" placeholder="'
+                                + esc(m.quota === null ? 'no limit' : m.quota) + '"></div>'
+                                + '<div><button type="button" class="btn btn-primary btn-block cwp-edit-save" data-address="' + address + '" data-row="' + i + '">Save</button></div>'
+                                + '</div></td></tr>'
+                            : '');
                 }).join('')
                 + '</tbody></table></div>';
         }
@@ -237,16 +259,24 @@
         });
     });
 
-    jQuery(document).on('click', '.cwp-pw', function () {
-        var address = jQuery(this).data('address');
-        var next = window.prompt('New password for ' + address);
+    jQuery(document).on('click', '.cwp-edit-open', function () {
+        var row = jQuery('#cwp-edit-' + jQuery(this).data('row'));
+        row.toggle();
+        row.find('.cwp-edit-pw').focus();
+    });
 
-        if (!next) {
-            return;
-        }
+    jQuery(document).on('click', '.cwp-edit-save', function () {
+        var button = jQuery(this);
+        var row = jQuery('#cwp-edit-' + button.data('row'));
+        var address = button.data('address');
 
-        send('mailbox.password', { address: address, password: next }, function () {
-            say('Password changed for ' + address + '.', true);
+        send('mailbox.update', {
+            address: address,
+            password: row.find('.cwp-edit-pw').val(),
+            quota: row.find('.cwp-edit-quota').val()
+        }, function () {
+            loadMailboxes();
+            setTimeout(function () { say(address + ' updated.', true); }, 400);
         });
     });
 

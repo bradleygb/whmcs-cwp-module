@@ -27,6 +27,18 @@ All notable changes to this module are documented here.
   account, and which fields the module recognises in it. Read-only: it calls nothing but
   `list`, so it cannot create or delete anything. Use it before enabling the setting.
 
+- **A mailbox's size can be changed**, not only its password. Each row has an Edit action
+  covering both; leaving either blank leaves that one alone.
+
+### Fixed
+
+- **CWP builds the address itself.** Its `email` field takes the part before the @, and it
+  appends the domain — sending a whole address produced
+  `testexample.co.za@example.co.za` from `test` and `example.co.za`. Every write now sends
+  the local part and the domain apart.
+- **A quota of `0` is no limit**, as it is everywhere else in CWP, and no longer renders
+  as a zero-megabyte mailbox.
+
 ### Security
 
 - Every mailbox request is checked against what the account actually holds before
