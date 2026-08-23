@@ -6,7 +6,7 @@
  * CwpException on failure; the dispatcher converts that into WHMCS's return contract.
  *
  * @package cwp7
- * @version 2.1.0
+ * @version 2.1.1
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
@@ -266,9 +266,16 @@ final class Account
      * package change itself — CWP checks it as `accout_upd`, separate from the
      * "Account pack change" permission. A key without it still gets the package moved,
      * which is the part that matters.
+     *
+     * Some servers refuse it with Account/UPD granted, so `apply_resource_limits` turns
+     * the call off rather than logging a failure on every package change.
      */
     private function applyResourceLimits(string $username, string $package): void
     {
+        if (!$this->client->getOption('apply_resource_limits', true)) {
+            return;
+        }
+
         try {
             $this->client->call('account', 'udp', $this->packageFields($username, $package));
         } catch (CwpException $e) {

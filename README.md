@@ -7,7 +7,7 @@ Drop-in replacement for the stock `cwp7` module: same directory, same module typ
 config option order. Existing server entries, products and services keep working with no
 reconfiguration.
 
-**Version 2.1.0** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
+**Version 2.1.1** · MIT licensed · WHMCS 8.5–9.0 · PHP 7.4–8.3
 
 ---
 

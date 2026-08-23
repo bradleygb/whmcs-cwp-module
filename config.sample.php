@@ -10,7 +10,7 @@
  * WHMCS stores encrypted.
  *
  * @package cwp7
- * @version 2.1.0
+ * @version 2.1.1
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */
@@ -102,6 +102,20 @@ return [
          * own FQDN and the redirect must land on it.
          */
         'autologin_trust_returned_host' => false,
+
+        /**
+         * Apply the product's inode, open-file and process limits after a package
+         * change, through account/udp.
+         *
+         * CWP checks that call as `accout_upd`, a broader grant than the package change
+         * itself, and some servers refuse it whether or not Account/UPD is granted in
+         * API Manager. A refusal is already non-fatal — the package still moves — but it
+         * writes a failure to the WHMCS Module Log on every package change.
+         *
+         * Set to false on such a server to stop making the call. The three limits then
+         * come from the CWP package alone and must be set in the panel if they matter.
+         */
+        'apply_resource_limits' => true,
 
         /**
          * Read real disk usage during the daily usage import.

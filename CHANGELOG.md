@@ -2,6 +2,20 @@
 
 All notable changes to this module are documented here.
 
+## 2.1.1
+
+### Added
+
+- **`apply_resource_limits` in `config.php`** (default on). The product's inode, open-file
+  and process limits are applied through `account`/`udp` after a package change, and a
+  refusal there has always been non-fatal — the package still moves. But some servers
+  refuse that call **with Account/UPD granted in API Manager**, which put a failed call
+  and a warning in the Module Log on every package change, for a grant that could not be
+  obtained.
+
+  Set it to false on such a server and the call is not made. The three limits then come
+  from the CWP package alone and must be set in the panel if they matter.
+
 ## 2.1.0
 
 ### Added

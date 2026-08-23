@@ -506,6 +506,19 @@ ok('udp: email included (CWP requires it)', $udp['email'] === 'owner@example.com
 ok('udp: no limit_nofile/limit_nproc (those are add names)',
     !isset($udp['limit_nofile']) && !isset($udp['limit_nproc']));
 
+// Some servers refuse account/udp with Account/UPD granted, so the call can be turned
+// off rather than failing on every package change. Off means no socket is opened at all.
+$limitsOff = new Account(makeClient(['apply_resource_limits' => false]), $serviceParams);
+$reached = true;
+try {
+    invokePrivate($limitsOff, 'applyResourceLimits', ['demo', '10']);
+} catch (Throwable $e) {
+    $reached = false;
+}
+ok('apply_resource_limits off skips the call entirely', $reached);
+ok('apply_resource_limits defaults to on',
+    makeClient()->getOption('apply_resource_limits', true) === true);
+
 echo "\nPackage definitions pushed to CWP\n";
 
 $productOptions = [
