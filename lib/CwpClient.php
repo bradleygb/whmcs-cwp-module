@@ -472,7 +472,13 @@ final class CwpClient
         }
 
         if ($httpCode !== 200) {
-            throw CwpException::protocol('HTTP ' . $httpCode, $context);
+            // Carry an excerpt of what came back. CWP answers some refusals with a PHP
+            // error rather than a status, and discarding the body leaves nothing to work
+            // from but the number - which is how an HTTP 500 on email/del cost a day.
+            throw CwpException::protocol(
+                'HTTP ' . $httpCode . ': ' . $this->excerpt($body),
+                $context
+            );
         }
 
         $decoded = json_decode($body, true);
@@ -540,6 +546,20 @@ final class CwpClient
         $text = preg_replace('/\{[A-Z0-9-]{3,20}\}\$[^\s",}\]]+/', '[hash redacted]', $text);
 
         return (string) preg_replace('/\$[0-9a-z]{1,2}\$[^\s",}\]]{8,}/', '[hash redacted]', (string) $text);
+    }
+
+    /**
+     * A short, safe piece of a response, for a message that has to explain itself.
+     */
+    private function excerpt(string $body): string
+    {
+        $body = trim(preg_replace('/\s+/', ' ', strip_tags($body)));
+
+        if ($body === '') {
+            return '(empty body)';
+        }
+
+        return $this->redact(strlen($body) > 300 ? substr($body, 0, 300) . '...' : $body);
     }
 
     /**
