@@ -1081,6 +1081,189 @@ ok('transport errors are retryable', CwpException::transport('timeout')->isRetry
 ok('api errors are not retryable', !CwpException::api('nope')->isRetryable());
 ok('config errors are not retryable', !CwpException::config('bad')->isRetryable());
 
+
+// ---------------------------------------------------------------------------------------
+// A reply that is valid JSON followed by something else.
+//
+// CWP answers account/del with its panel's HTML confirmation appended to the JSON. The
+// module used to reject the whole body, so a termination that had already happened was
+// reported to WHMCS as a failure - the service stayed Suspended while the account was
+// gone from the server. The first fixture is the exact reply from the 30 Aug module log.
+// ---------------------------------------------------------------------------------------
+
+$realDelReply = <<<'CWPREPLY'
+{"status":"OK"}<pre><i aria-hidden='true' class='icomoon-icon-checkmark'></i> User northwin deleted from server.<br><i aria-hidden='true' class='icomoon-icon-checkmark'></i> User and domains deleted from server.</pre>
+CWPREPLY;
+
+$fromReal = invokePrivate(CwpClient::class, 'leadingJsonObject', [$realDelReply]);
+ok('account/del reply with trailing HTML decodes', is_array($fromReal));
+ok(
+    '...and carries status OK, so the terminate reports success',
+    is_array($fromReal) && isset($fromReal['status']) && $fromReal['status'] === 'OK'
+);
+
+ok(
+    'a clean reply is unaffected',
+    invokePrivate(CwpClient::class, 'leadingJsonObject', ['{"status":"OK"}']) === ['status' => 'OK']
+);
+
+// Why this is a brace scan and not a search for the first "}<".
+$braceInValue = <<<'CWPREPLY'
+{"status":"OK","msj":"deleted {user} and }<b> too"}<pre>trailing</pre>
+CWPREPLY;
+
+$fromBrace = invokePrivate(CwpClient::class, 'leadingJsonObject', [$braceInValue]);
+ok(
+    'a brace inside a string value does not end the object early',
+    is_array($fromBrace) && $fromBrace['msj'] === 'deleted {user} and }<b> too'
+);
+
+$nested = <<<'CWPREPLY'
+{"status":"OK","result":{"account_info":{"state":"active"}}}<pre>x</pre>
+CWPREPLY;
+
+$fromNested = invokePrivate(CwpClient::class, 'leadingJsonObject', [$nested]);
+ok(
+    'nested objects are walked to the outer closing brace',
+    is_array($fromNested) && $fromNested['result']['account_info']['state'] === 'active'
+);
+
+$escapedQuote = <<<'CWPREPLY'
+{"status":"OK","msj":"quote \" then }brace"}<pre>x</pre>
+CWPREPLY;
+
+$fromEscaped = invokePrivate(CwpClient::class, 'leadingJsonObject', [$escapedQuote]);
+ok(
+    'an escaped quote does not reopen the string',
+    is_array($fromEscaped) && $fromEscaped['msj'] === 'quote " then }brace'
+);
+
+ok(
+    'a truncated object stays a failure',
+    invokePrivate(CwpClient::class, 'leadingJsonObject', ['{"status":"OK"']) === null
+);
+ok(
+    'a body that is only markup stays a failure',
+    invokePrivate(CwpClient::class, 'leadingJsonObject', ['<html>nope</html>']) === null
+);
+ok(
+    'junk stays a failure',
+    invokePrivate(CwpClient::class, 'leadingJsonObject', ['not json at all']) === null
+);
+ok(
+    'leading whitespace is tolerated',
+    invokePrivate(CwpClient::class, 'leadingJsonObject', ['   {"status":"OK"}x']) === ['status' => 'OK']
+);
+
+
+// ---------------------------------------------------------------------------------------
+// Reconciling a failed deletion against account/list.
+//
+// terminate() accepts a CWP error when the account is no longer on the server, which is
+// what makes WHMCS mark the service Terminated. That makes this the check standing between
+// "the account is gone" and "we told WHMCS a live account was terminated", so it is tested
+// against the real rows: the 29 Aug list held northwin, the 30 Aug list did not.
+// ---------------------------------------------------------------------------------------
+
+$listBefore = [
+    ['username' => 'connect',  'domain' => 'connectn.co.za',            'status' => 'active'],
+    ['username' => 'exampleh', 'domain' => 'example-hosting.co.za', 'status' => 'active'],
+    ['username' => 'bluecir',  'domain' => 'bluecircle.co.za',       'status' => 'active'],
+    ['username' => 'greenva',  'domain' => 'greenvalley.co.za',        'status' => 'active'],
+    ['username' => 'northwin', 'domain' => 'northwind.co.za',       'status' => 'suspended'],
+    ['username' => 'silverl',  'domain' => 'silverlake.co.za', 'status' => 'active'],
+    ['username' => 'booysen',  'domain' => 'booysenlogistics.co.za',    'status' => 'active'],
+    ['username' => 'connectn', 'domain' => 'connectn22.co.za',          'status' => 'active'],
+];
+
+// The same list after the delete CWP reported as a failure.
+$listAfter = array_values(array_filter($listBefore, static function (array $row): bool {
+    return $row['username'] !== 'northwin';
+}));
+
+ok(
+    'a still-listed account is found, so a real failure stays a failure',
+    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'northwin']) === true
+);
+ok(
+    'an account CWP has removed is not found, so the terminate is accepted',
+    invokePrivate(Account::class, 'listsAccount', [$listAfter, 'northwin']) === false
+);
+ok(
+    'the other seven accounts are untouched by that decision',
+    invokePrivate(Account::class, 'listsAccount', [$listAfter, 'booysen']) === true
+);
+
+ok(
+    'matching ignores case, since CWP echoes the name it stored',
+    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'NorthWin']) === true
+);
+ok(
+    'matching is exact, not a prefix - northwi must not match northwin',
+    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'northwi']) === false
+);
+ok(
+    'an empty username never counts as present',
+    invokePrivate(Account::class, 'listsAccount', [$listBefore, '']) === false
+);
+ok(
+    'an empty list reads as gone',
+    invokePrivate(Account::class, 'listsAccount', [[], 'northwin']) === false
+);
+ok(
+    'a row with no username is skipped, not matched',
+    invokePrivate(Account::class, 'listsAccount', [[['domain' => 'x.co.za']], 'northwin']) === false
+);
+ok(
+    'a malformed row cannot hide an account that is still there',
+    invokePrivate(Account::class, 'listsAccount', [
+        [['domain' => 'x.co.za'], ['username' => 'northwin']],
+        'northwin',
+    ]) === true
+);
+
+
+// The same reply driven through interpret(), which is the path call() actually takes.
+// leadingJsonObject() being right is not the same as interpret() using it, and it was
+// interpret() that reported the termination as a failure.
+$interpreted = null;
+$interpretThrew = false;
+
+try {
+    $interpreted = invokePrivate(makeClient(), 'interpret', [
+        $realDelReply,
+        200,
+        0,
+        '',
+        ['function' => 'account', 'action' => 'del'],
+    ]);
+} catch (CwpException $e) {
+    $interpretThrew = true;
+}
+
+ok('interpret() no longer throws on the account/del reply', !$interpretThrew);
+ok(
+    'interpret() returns the status, so terminate() returns success to WHMCS',
+    is_array($interpreted) && isset($interpreted['status']) && $interpreted['status'] === 'OK'
+);
+
+// And a body with no JSON at all must still be rejected by that same path.
+$junkThrew = false;
+
+try {
+    invokePrivate(makeClient(), 'interpret', [
+        'not json at all',
+        200,
+        0,
+        '',
+        ['function' => 'account', 'action' => 'del'],
+    ]);
+} catch (CwpException $e) {
+    $junkThrew = true;
+}
+
+ok('interpret() still rejects a reply carrying no JSON', $junkThrew);
+
 echo "\n" . str_repeat('-', 52) . "\n";
 printf("  %d passed, %d failed\n\n", $passed, $failed);
 

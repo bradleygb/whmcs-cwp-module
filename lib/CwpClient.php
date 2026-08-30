@@ -278,6 +278,78 @@ final class CwpClient
     }
 
     /**
+     * Ordinal of the JSON string-escape character.
+     *
+     * Numeric so this file carries no escape sequence of its own - one did not survive a
+     * scripted edit while this was being written, and silently became a broken literal.
+     */
+    const JSON_ESCAPE = 92;
+
+    /**
+     * The first complete JSON object at the head of a reply, or null.
+     *
+     * For replies that are valid JSON followed by something else. Scans brace depth while
+     * respecting quoted strings and escapes, so a brace inside a value cannot end the
+     * object early - which is why this is not a search for the first "}<".
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function leadingJsonObject(string $body)
+    {
+        $body = ltrim($body);
+
+        if (strncmp($body, '{', 1) !== 0) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $length = strlen($body);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $body[$i];
+
+            if ($inString) {
+                if ($escaped) {
+                    $escaped = false;
+                } elseif (ord($char) === self::JSON_ESCAPE) {
+                    $escaped = true;
+                } elseif ($char === '"') {
+                    $inString = false;
+                }
+
+                continue;
+            }
+
+            if ($char === '"') {
+                $inString = true;
+                continue;
+            }
+
+            if ($char === '{') {
+                $depth++;
+                continue;
+            }
+
+            if ($char !== '}') {
+                continue;
+            }
+
+            if (--$depth > 0) {
+                continue;
+            }
+
+            $decoded = json_decode(substr($body, 0, $i + 1), true);
+
+            return is_array($decoded) ? $decoded : null;
+        }
+
+        // Never balanced: the reply is truncated, not merely followed by something.
+        return null;
+    }
+
+    /**
      * The message/payload a response carries, under either supported key.
      *
      * @param array<string,mixed> $decoded
@@ -488,6 +560,21 @@ final class CwpClient
         }
 
         $decoded = json_decode($body, true);
+
+        if (!is_array($decoded)) {
+            // CWP appends its panel's HTML confirmation after the JSON on some actions.
+            // account/del is confirmed - it answered `{"status":"OK"}<pre>User northwin
+            // deleted from server...`, which json_decode rejects outright, so a
+            // termination that had already happened was reported to WHMCS as a failure.
+            //
+            // Take the object off the front rather than special-casing that one action:
+            // account/susp and account/unsp go through the same CWP controller and are
+            // the obvious next candidates.
+            //
+            // Nothing is hidden by this. log() records the whole raw body, which is how
+            // the trailing markup was found in the first place.
+            $decoded = self::leadingJsonObject($body);
+        }
 
         if (!is_array($decoded)) {
             if (strncmp(ltrim($body), '<', 1) === 0) {

@@ -379,7 +379,99 @@ final class Account
      */
     public function terminate(): void
     {
-        $this->client->call('account', 'del', ['user' => $this->resolveUsername()]);
+        $username = $this->resolveUsername();
+
+        try {
+            $this->client->call('account', 'del', ['user' => $username]);
+        } catch (CwpException $e) {
+            // A terminate whose goal state already holds is a success, whatever CWP said
+            // on the way. Returning normally is what makes WHMCS mark the service
+            // Terminated - cwp7_perform() returns 'success' when nothing is thrown, and
+            // the module never writes the status itself.
+            //
+            // The mirror of createCompletedAfterTimeout(), which asks the same question
+            // in the other direction after a create times out.
+            if (!$this->accountIsGone($username)) {
+                throw $e;
+            }
+
+            $this->logTerminateReconciled($username, $e);
+        }
+    }
+
+    /**
+     * Is the account absent from the server?
+     *
+     * Uses account/list rather than accountdetail/list: what accountdetail returns for a
+     * user that no longer exists is not established, and this decides whether a failed
+     * deletion is reported to WHMCS as a success. account/list is unambiguous - it simply
+     * stops listing the account.
+     *
+     * A lookup that itself fails answers false. Unreachable is not the same as gone, and
+     * the only safe default here is to let the original failure stand.
+     */
+    private function accountIsGone(string $username): bool
+    {
+        try {
+            $accounts = $this->listAll();
+        } catch (CwpException $ignored) {
+            return false;
+        }
+
+        return !self::listsAccount($accounts, $username);
+    }
+
+    /**
+     * Does an account/list response contain this username?
+     *
+     * Split out from accountIsGone() because it is the part that decides whether a failed
+     * deletion is reported to WHMCS as a success, and it is the only part testable without
+     * a socket.
+     *
+     * A row without a username is skipped rather than treated as a match: a malformed row
+     * must not be able to keep an account alive that CWP has already removed, nor report
+     * one gone that is still there.
+     *
+     * @param array<int,array<string,mixed>> $accounts
+     */
+    private static function listsAccount(array $accounts, string $username): bool
+    {
+        if ($username === '') {
+            return false;
+        }
+
+        foreach ($accounts as $account) {
+            if (!is_array($account) || !isset($account['username'])) {
+                continue;
+            }
+
+            if (strcasecmp(trim((string) $account['username']), $username) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Record that a failed deletion was accepted because the account had already gone.
+     *
+     * Worth a line of its own in the Module Log: the admin sees a successful termination,
+     * and this is the only place that says CWP reported an error on the way to it.
+     */
+    private function logTerminateReconciled(string $username, CwpException $e): void
+    {
+        if (!function_exists('logModuleCall')) {
+            return;
+        }
+
+        logModuleCall(
+            'cwp7',
+            'TerminateAccount reconciled',
+            ['user' => $username],
+            'CWP reported an error but the account is no longer on the server, so the '
+                . 'termination is treated as complete. CWP said: ' . $e->getMessage()
+        );
     }
 
     /**
