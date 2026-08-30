@@ -25,6 +25,10 @@ final class Account
      * Username length cap applied to new accounts. Overridable per product
      * (config option 5; 0 disables the cap).
      */
+    /** The status values account/list reports, as seen on the live server. */
+    const STATE_ACTIVE = 'active';
+    const STATE_SUSPENDED = 'suspended';
+
     const DEFAULT_USERNAME_MAX = 8;
 
     /** @var CwpClient */
@@ -363,7 +367,7 @@ final class Account
      */
     public function suspend(): void
     {
-        $this->client->call('account', 'susp', ['user' => $this->resolveUsername()]);
+        $this->changeState('susp', self::STATE_SUSPENDED);
     }
 
     /**
@@ -371,7 +375,7 @@ final class Account
      */
     public function unsuspend(): void
     {
-        $this->client->call('account', 'unsp', ['user' => $this->resolveUsername()]);
+        $this->changeState('unsp', self::STATE_ACTIVE);
     }
 
     /**
@@ -391,53 +395,103 @@ final class Account
             //
             // The mirror of createCompletedAfterTimeout(), which asks the same question
             // in the other direction after a create times out.
-            if (!$this->accountIsGone($username)) {
+            //
+            // Absence IS the goal here, which is the one thing this does not share with
+            // changeState(): a suspend is not satisfied by the account having vanished.
+            if ($this->findAccount($username) !== null) {
                 throw $e;
             }
 
-            $this->logTerminateReconciled($username, $e);
+            $this->logReconciled(
+                'TerminateAccount',
+                $username,
+                'the account is no longer on the server, so the termination is complete',
+                $e
+            );
         }
     }
 
     /**
-     * Is the account absent from the server?
+     * Suspend or unsuspend, accepting a CWP error when the account already reads the way
+     * we asked for.
      *
-     * Uses account/list rather than accountdetail/list: what accountdetail returns for a
-     * user that no longer exists is not established, and this decides whether a failed
-     * deletion is reported to WHMCS as a success. account/list is unambiguous - it simply
-     * stops listing the account.
+     * Same reasoning as terminate() and the same reason for it: a state change that has
+     * already happened is a success, and reporting it as a failure leaves WHMCS describing
+     * an account that does not match the server. For these two the divergence is quieter
+     * than a bad termination and lasts longer - WHMCS shows Active while the site is off,
+     * so support tells the customer their account is fine.
      *
-     * A lookup that itself fails answers false. Unreachable is not the same as gone, and
-     * the only safe default here is to let the original failure stand.
+     * @param string $action Endpoint action: susp or unsp.
+     * @param string $goal   The status the account should read afterwards.
+     *
+     * @throws CwpException
      */
-    private function accountIsGone(string $username): bool
+    private function changeState(string $action, string $goal): void
+    {
+        $username = $this->resolveUsername();
+
+        try {
+            $this->client->call('account', $action, ['user' => $username]);
+        } catch (CwpException $e) {
+            $account = $this->findAccount($username);
+
+            // An account that is missing is a genuine fault here, unlike for a terminate,
+            // where absence IS the goal. Nothing about a suspend is satisfied by the
+            // account having vanished, so this must rethrow rather than pass.
+            if ($account === null || self::statusOf($account) !== $goal) {
+                throw $e;
+            }
+
+            $this->logReconciled(
+                $action === 'susp' ? 'SuspendAccount' : 'UnsuspendAccount',
+                $username,
+                'the account already reads ' . $goal . ' on the server',
+                $e
+            );
+        }
+    }
+
+    /**
+     * The account's row in account/list, or null when it is not listed.
+     *
+     * Uses account/list rather than accountdetail/list because it answers both questions
+     * these reconciliations ask - does the account exist, and what state is it in - from
+     * one call the module already makes, and it needs no error-string matching to read.
+     *
+     * A lookup that itself fails answers null, which every caller treats as "do not
+     * reconcile". Unreachable is not the same as gone, and letting the original failure
+     * stand is the only safe default.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function findAccount(string $username)
     {
         try {
             $accounts = $this->listAll();
         } catch (CwpException $ignored) {
-            return false;
+            return null;
         }
 
-        return !self::listsAccount($accounts, $username);
+        return self::pickAccount($accounts, $username);
     }
 
     /**
-     * Does an account/list response contain this username?
+     * Find a username in an account/list response.
      *
-     * Split out from accountIsGone() because it is the part that decides whether a failed
-     * deletion is reported to WHMCS as a success, and it is the only part testable without
-     * a socket.
+     * Split out because it decides whether a failed call is reported to WHMCS as a
+     * success, and it is the only part of that testable without a socket.
      *
-     * A row without a username is skipped rather than treated as a match: a malformed row
-     * must not be able to keep an account alive that CWP has already removed, nor report
-     * one gone that is still there.
+     * A row carrying no username is skipped rather than matched: a malformed row must not
+     * keep alive an account CWP has removed, nor report one gone that is still there.
      *
      * @param array<int,array<string,mixed>> $accounts
+     *
+     * @return array<string,mixed>|null
      */
-    private static function listsAccount(array $accounts, string $username): bool
+    private static function pickAccount(array $accounts, string $username)
     {
         if ($username === '') {
-            return false;
+            return null;
         }
 
         foreach ($accounts as $account) {
@@ -446,20 +500,37 @@ final class Account
             }
 
             if (strcasecmp(trim((string) $account['username']), $username) === 0) {
-                return true;
+                return $account;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
-     * Record that a failed deletion was accepted because the account had already gone.
+     * An account row's status, lowercased. Empty string when the row carries none, which
+     * matches no goal and so reconciles nothing.
      *
-     * Worth a line of its own in the Module Log: the admin sees a successful termination,
-     * and this is the only place that says CWP reported an error on the way to it.
+     * @param array<string,mixed> $account
      */
-    private function logTerminateReconciled(string $username, CwpException $e): void
+    private static function statusOf(array $account): string
+    {
+        if (!isset($account['status']) || !is_scalar($account['status'])) {
+            return '';
+        }
+
+        return strtolower(trim((string) $account['status']));
+    }
+
+    /**
+     * Record that a failed call was accepted because the server already read the way it
+     * was asked to.
+     *
+     * Worth a line of its own: the admin sees a success, and this is the only place that
+     * says CWP reported an error on the way to it. $e's message is already redacted where
+     * it was built - see CwpClient::interpret().
+     */
+    private function logReconciled(string $action, string $username, string $because, CwpException $e): void
     {
         if (!function_exists('logModuleCall')) {
             return;
@@ -467,10 +538,10 @@ final class Account
 
         logModuleCall(
             'cwp7',
-            'TerminateAccount reconciled',
+            $action . ' reconciled',
             ['user' => $username],
-            'CWP reported an error but the account is no longer on the server, so the '
-                . 'termination is treated as complete. CWP said: ' . $e->getMessage()
+            'CWP reported an error but ' . $because . ', so the request is treated as '
+                . 'complete. CWP said: ' . $e->getMessage()
         );
     }
 

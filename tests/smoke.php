@@ -1182,44 +1182,44 @@ $listAfter = array_values(array_filter($listBefore, static function (array $row)
 }));
 
 ok(
-    'a still-listed account is found, so a real failure stays a failure',
-    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'northwin']) === true
+    'a still-listed account is returned, so a real failure stays a failure',
+    invokePrivate(Account::class, 'pickAccount', [$listBefore, 'northwin']) !== null
 );
 ok(
-    'an account CWP has removed is not found, so the terminate is accepted',
-    invokePrivate(Account::class, 'listsAccount', [$listAfter, 'northwin']) === false
+    'an account CWP has removed returns null, so the terminate is accepted',
+    invokePrivate(Account::class, 'pickAccount', [$listAfter, 'northwin']) === null
 );
 ok(
     'the other seven accounts are untouched by that decision',
-    invokePrivate(Account::class, 'listsAccount', [$listAfter, 'booysen']) === true
+    invokePrivate(Account::class, 'pickAccount', [$listAfter, 'booysen']) !== null
 );
 
 ok(
     'matching ignores case, since CWP echoes the name it stored',
-    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'NorthWin']) === true
+    invokePrivate(Account::class, 'pickAccount', [$listBefore, 'NorthWin']) !== null
 );
 ok(
     'matching is exact, not a prefix - northwi must not match northwin',
-    invokePrivate(Account::class, 'listsAccount', [$listBefore, 'northwi']) === false
+    invokePrivate(Account::class, 'pickAccount', [$listBefore, 'northwi']) === null
 );
 ok(
     'an empty username never counts as present',
-    invokePrivate(Account::class, 'listsAccount', [$listBefore, '']) === false
+    invokePrivate(Account::class, 'pickAccount', [$listBefore, '']) === null
 );
 ok(
     'an empty list reads as gone',
-    invokePrivate(Account::class, 'listsAccount', [[], 'northwin']) === false
+    invokePrivate(Account::class, 'pickAccount', [[], 'northwin']) === null
 );
 ok(
     'a row with no username is skipped, not matched',
-    invokePrivate(Account::class, 'listsAccount', [[['domain' => 'x.co.za']], 'northwin']) === false
+    invokePrivate(Account::class, 'pickAccount', [[['domain' => 'x.co.za']], 'northwin']) === null
 );
 ok(
     'a malformed row cannot hide an account that is still there',
-    invokePrivate(Account::class, 'listsAccount', [
+    invokePrivate(Account::class, 'pickAccount', [
         [['domain' => 'x.co.za'], ['username' => 'northwin']],
         'northwin',
-    ]) === true
+    ]) !== null
 );
 
 
@@ -1263,6 +1263,76 @@ try {
 }
 
 ok('interpret() still rejects a reply carrying no JSON', $junkThrew);
+
+
+// ---------------------------------------------------------------------------------------
+// The status half of the same reconciliation, for suspend and unsuspend.
+//
+// account/list carries the state - the live rows show `active` on six accounts and
+// `suspended` on northwin - so a susp or unsp that reports failure can be checked against
+// what the server actually says. statusOf() is what changeState() compares to its goal.
+// ---------------------------------------------------------------------------------------
+
+ok(
+    'statusOf reads an active row',
+    invokePrivate(Account::class, 'statusOf', [['username' => 'booysen', 'status' => 'active']])
+        === Account::STATE_ACTIVE
+);
+ok(
+    'statusOf reads a suspended row',
+    invokePrivate(Account::class, 'statusOf', [['username' => 'northwin', 'status' => 'suspended']])
+        === Account::STATE_SUSPENDED
+);
+ok(
+    'statusOf lowercases and trims, since this is compared for equality',
+    invokePrivate(Account::class, 'statusOf', [['status' => '  Suspended ']])
+        === Account::STATE_SUSPENDED
+);
+
+// A row with no status must match no goal, so it reconciles nothing and the original
+// failure stands. Same reasoning as a row with no username.
+ok(
+    'a row with no status matches no goal',
+    invokePrivate(Account::class, 'statusOf', [['username' => 'booysen']]) === ''
+);
+ok(
+    'a non-scalar status matches no goal',
+    invokePrivate(Account::class, 'statusOf', [['status' => ['active']]]) === ''
+);
+ok(
+    'no status is not accidentally equal to either goal',
+    invokePrivate(Account::class, 'statusOf', [[]]) !== Account::STATE_ACTIVE
+        && invokePrivate(Account::class, 'statusOf', [[]]) !== Account::STATE_SUSPENDED
+);
+
+// The pairing changeState() actually makes: reached goal -> reconcile, otherwise rethrow.
+$suspendedRow = ['username' => 'northwin', 'status' => 'suspended'];
+$activeRow    = ['username' => 'northwin', 'status' => 'active'];
+
+ok(
+    'susp that failed but left the account suspended has reached its goal',
+    invokePrivate(Account::class, 'statusOf', [$suspendedRow]) === Account::STATE_SUSPENDED
+);
+ok(
+    'susp that failed with the account still active has NOT reached its goal',
+    invokePrivate(Account::class, 'statusOf', [$activeRow]) !== Account::STATE_SUSPENDED
+);
+ok(
+    'unsp that failed but left the account active has reached its goal',
+    invokePrivate(Account::class, 'statusOf', [$activeRow]) === Account::STATE_ACTIVE
+);
+ok(
+    'unsp that failed with the account still suspended has NOT reached its goal',
+    invokePrivate(Account::class, 'statusOf', [$suspendedRow]) !== Account::STATE_ACTIVE
+);
+
+// The asymmetry that keeps terminate and suspend apart. An absent account is the goal of a
+// terminate and a fault for a suspend, so changeState() rethrows on null before it ever
+// looks at a status - there is no row to read one from.
+ok(
+    'an absent account yields no row, so no suspend goal can be met by it',
+    invokePrivate(Account::class, 'pickAccount', [$listAfter, 'northwin']) === null
+);
 
 echo "\n" . str_repeat('-', 52) . "\n";
 printf("  %d passed, %d failed\n\n", $passed, $failed);
