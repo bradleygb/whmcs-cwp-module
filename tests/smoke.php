@@ -737,7 +737,8 @@ ok('token checking fails closed without WHMCS', !ClientRequest::tokenValid('anyt
 
 echo "\nDashboard model (built from a real accountdetail response)\n";
 
-// exampleh on a live server, captured 23 August 2026. Kept verbatim: the awkward cases here are
+// Captured from a live server, 23 August 2026, with account and domain names replaced.
+// Every figure, key and unit is untouched: the awkward cases here are
 // real, not invented - a package allowing no FTP accounts that has one, a database
 // allowance of zero holding two, and a domain over its disk quota.
 $exampleh = [
@@ -894,7 +895,8 @@ ok('the check ignores case', CwpClient::isSecretField('Password'));
 // CWP names the same column differently between endpoints, so each is read from a list
 // of candidates. The exact names email/list uses are not documented anywhere we have -
 // tools/email-probe.php reads them off a live server.
-// Captured from a live server on 23 August 2026. The units are the point: a quota arrives in
+// Captured from a live server on 23 August 2026, names replaced, figures untouched -
+// the units are the point: a quota arrives in
 // bytes and consumption in kilobytes, in the same row.
 $mailboxRows = Mailbox::rows([
     ['email' => 'Sales@Example.co.za', 'quota' => 5242880000, 'consumed' => 72487.35],
@@ -1088,7 +1090,8 @@ ok('config errors are not retryable', !CwpException::config('bad')->isRetryable(
 // CWP answers account/del with its panel's HTML confirmation appended to the JSON. The
 // module used to reject the whole body, so a termination that had already happened was
 // reported to WHMCS as a failure - the service stayed Suspended while the account was
-// gone from the server. The first fixture is the exact reply from the 30 Aug module log.
+// gone from the server. The first fixture is the reply from the 30 Aug module log, with
+// only the account name replaced - the JSON, the markup and their arrangement are exact.
 // ---------------------------------------------------------------------------------------
 
 $realDelReply = <<<'CWPREPLY'
@@ -1162,18 +1165,19 @@ ok(
 // terminate() accepts a CWP error when the account is no longer on the server, which is
 // what makes WHMCS mark the service Terminated. That makes this the check standing between
 // "the account is gone" and "we told WHMCS a live account was terminated", so it is tested
-// against the real rows: the 29 Aug list held northwin, the 30 Aug list did not.
+// against rows in the shape the server returned, names replaced: the 29 Aug list held
+// the account, the 30 Aug list did not.
 // ---------------------------------------------------------------------------------------
 
 $listBefore = [
-    ['username' => 'connect',  'domain' => 'connectn.co.za',            'status' => 'active'],
-    ['username' => 'exampleh', 'domain' => 'example-hosting.co.za', 'status' => 'active'],
+    ['username' => 'connect',  'domain' => 'connectn.co.za',         'status' => 'active'],
+    ['username' => 'exampleh', 'domain' => 'example-hosting.co.za',  'status' => 'active'],
     ['username' => 'bluecir',  'domain' => 'bluecircle.co.za',       'status' => 'active'],
-    ['username' => 'greenva',  'domain' => 'greenvalley.co.za',        'status' => 'active'],
-    ['username' => 'northwin', 'domain' => 'northwind.co.za',       'status' => 'suspended'],
-    ['username' => 'silverl',  'domain' => 'silverlake.co.za', 'status' => 'active'],
-    ['username' => 'booysen',  'domain' => 'booysenlogistics.co.za',    'status' => 'active'],
-    ['username' => 'connectn', 'domain' => 'connectn22.co.za',          'status' => 'active'],
+    ['username' => 'greenva',  'domain' => 'greenvalley.co.za',      'status' => 'active'],
+    ['username' => 'northwin', 'domain' => 'northwind.co.za',        'status' => 'suspended'],
+    ['username' => 'silverl',  'domain' => 'silverlake.co.za',       'status' => 'active'],
+    ['username' => 'booysen',  'domain' => 'booysenlogistics.co.za', 'status' => 'active'],
+    ['username' => 'connectn', 'domain' => 'connectn22.co.za',       'status' => 'active'],
 ];
 
 // The same list after the delete CWP reported as a failure.
