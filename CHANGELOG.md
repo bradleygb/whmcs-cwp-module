@@ -2,6 +2,40 @@
 
 All notable changes to this module are documented here.
 
+## 2.5.0
+
+### Added
+
+- **The mailbox list filters and pages.** Ten to a page, with a filter box once there are
+  more than ten. An account with hundreds of addresses used to render every one of them,
+  and every row carried a hidden inline editor with three inputs behind it, so five
+  hundred mailboxes meant a thousand table rows and no way to find anything among them.
+
+  `email`/`list` cannot help here: its documented request takes `key`, `action`, `user`
+  and `debug` and nothing else, so the whole account arrives in one response and the
+  paging has to happen in the browser.
+
+### Fixed
+
+- **A termination that succeeded was reported to WHMCS as a failure.** `account`/`del`
+  answers `{"status":"OK"}` and then appends its panel's HTML confirmation, which
+  `json_decode` rejects outright. WHMCS recorded a failed termination and left the
+  service Suspended while the account had already been deleted from the server.
+
+  The parser now takes the first complete JSON object off the front of a reply. It is not
+  special-cased to `del`, because `account`/`susp` and `account`/`unsp` go through the
+  same CWP controller.
+
+- **Suspend, unsuspend and terminate check the server before reporting a failure.** If the
+  account is already gone, already suspended or already active, the request has done what
+  it was asked to do, whatever CWP said on the way. Absence counts as success for a
+  termination and as a fault for a suspension, so the two are not treated alike.
+
+- **The module log no longer stores an entire response body on every call.** The client
+  area fetches the mailbox list on every page view, so a large account wrote hundreds of
+  rows into `tblmodulelog` each time somebody opened their service page. Bodies are capped
+  at 4000 bytes and payload rows at 20, each saying how much was left out.
+
 ## 2.4.0
 
 ### Added
@@ -13,11 +47,13 @@ All notable changes to this module are documented here.
 - **`mailbox_management` in `config.php`** (default **off**). Turned on, customers can
   create mailboxes, change their passwords and delete them, without leaving WHMCS.
 
-  **It is off deliberately, and should stay off until you have confirmed the contract on
-  your own server.** The field names CWP expects on `email`/`add`, `udp` and `del` are
-  taken from its conventions on other endpoints, not from its Interactive Documentation,
-  which we have never seen for this endpoint. They are gathered in `Mailbox::FIELDS` so a
-  correction is a single edit.
+  It ships **off** so that a server whose API key lacks the write grants is not offered
+  controls that cannot work.
+
+  *Superseded in 2.5.0:* this entry originally warned that the field names on
+  `email`/`add`, `udp` and `del` were inferred rather than documented. They have since
+  been confirmed against CWP's Interactive Documentation and corrected — `udp` and `del`
+  take `mailbox` and `password`, not `email` and `pass`.
 
   Listing does not depend on the setting and is always available.
 
