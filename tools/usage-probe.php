@@ -15,7 +15,7 @@
  * Requires only LIST on Account — the same grant the module already needs.
  *
  * @package cwp7
- * @version 2.5.0
+ * @version 2.5.1
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
  */

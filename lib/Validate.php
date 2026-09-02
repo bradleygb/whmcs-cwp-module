@@ -10,7 +10,7 @@
  * customer rather than logged.
  *
  * @package cwp7
- * @version 2.5.0
+ * @version 2.5.1
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module

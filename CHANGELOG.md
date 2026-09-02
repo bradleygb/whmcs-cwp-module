@@ -2,6 +2,19 @@
 
 All notable changes to this module are documented here.
 
+## 2.5.1
+
+### Added
+
+- **The Domains, Subdomains and Databases panels filter and page**, five to a page. Asked
+  for on the database list, and done in the function all three share, because they had the
+  same problem and special-casing one of the three would have been more code rather than
+  less.
+
+  The filter matches on **every column**, not just the first — a database is as likely to
+  be looked up by its user as by its name. Neither the filter nor the pager appears until
+  a panel holds more than five rows, so a small account looks exactly as it did.
+
 ## 2.5.0
 
 ### Added

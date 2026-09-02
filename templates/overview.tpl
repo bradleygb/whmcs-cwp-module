@@ -82,6 +82,7 @@
 .cwp-row-acts button { margin-left: 6px; }
 .cwp-mailbox-form input::placeholder, .cwp-edit input::placeholder { opacity: .4; font-style: italic; }
 .cwp-mailbox-filter { margin: 0 0 10px; max-width: 320px; }
+.cwp-panel-filter { margin: 0 0 8px; max-width: 260px; }
 .cwp-pager { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .cwp-pager-at { font-size: 12px; opacity: .7; }
 .cwp-hint { font-weight: 400; opacity: .55; }
@@ -120,19 +121,121 @@
             + track + '</div>';
     }
 
-    function panel(title, columns, rows, keys) {
+    // Each panel's rows and its filter/page position, keyed by the panel id, so a
+    // keystroke re-renders one table rather than the whole dashboard.
+    var panelViews = {};
+    var PANEL_ROWS = 5;
+
+    function panel(title, columns, rows, keys, id) {
         if (!rows.length) {
             return '';
         }
 
-        var head = columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('');
-        var body = rows.map(function (row) {
-            return '<tr>' + keys.map(function (k) { return '<td>' + esc(row[k]) + '</td>'; }).join('') + '</tr>';
+        panelViews[id] = { columns: columns, rows: rows, keys: keys, filter: '', page: 0 };
+
+        var html = '<div><h4>' + esc(title) + '</h4>';
+
+        // Only once there is more than a page of them - a three-database account should
+        // look exactly as it did before.
+        if (rows.length > PANEL_ROWS) {
+            html += '<div class="cwp-panel-filter">'
+                + '<input class="form-control input-sm form-control-sm cwp-panel-search"'
+                + ' data-panel="' + esc(id) + '" type="search"'
+                + ' placeholder="Filter ' + rows.length + '"></div>';
+        }
+
+        return html + '<div id="cwp-panel-' + esc(id) + '"></div></div>';
+    }
+
+    // Matches on every column, not just the first: a database is as likely to be looked
+    // up by its user as by its name.
+    function panelMatches(view) {
+        var needle = view.filter.toLowerCase();
+
+        if (!needle) {
+            return view.rows;
+        }
+
+        return view.rows.filter(function (row) {
+            for (var i = 0; i < view.keys.length; i++) {
+                var value = row[view.keys[i]];
+
+                if (value !== null && value !== undefined
+                    && String(value).toLowerCase().indexOf(needle) !== -1) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+    }
+
+    function panelBody(id) {
+        var view = panelViews[id];
+
+        if (!view) {
+            return '';
+        }
+
+        var rows = panelMatches(view);
+        var total = rows.length;
+        var pages = Math.max(1, Math.ceil(total / PANEL_ROWS));
+
+        if (view.page >= pages) {
+            view.page = pages - 1;
+        }
+
+        if (view.page < 0) {
+            view.page = 0;
+        }
+
+        if (!total) {
+            return '<p class="text-muted">Nothing matches that.</p>';
+        }
+
+        var from = view.page * PANEL_ROWS;
+        var page = rows.slice(from, from + PANEL_ROWS);
+
+        var head = view.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('');
+        var body = page.map(function (row) {
+            return '<tr>' + view.keys.map(function (k) {
+                return '<td>' + esc(row[k]) + '</td>';
+            }).join('') + '</tr>';
         }).join('');
 
-        return '<div><h4>' + esc(title) + '</h4><div class="cwp-scroll">'
-            + '<table class="table table-condensed table-sm"><thead><tr>' + head + '</tr></thead>'
-            + '<tbody>' + body + '</tbody></table></div></div>';
+        var html = '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
+            + '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+
+        if (total > PANEL_ROWS) {
+            html += '<div class="cwp-pager">'
+                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-panel-page"'
+                + ' data-panel="' + esc(id) + '" data-step="-1"'
+                + (view.page === 0 ? ' disabled' : '') + '>Previous</button>'
+                + '<span class="cwp-pager-at">' + (from + 1) + '\u2013' + (from + page.length)
+                + ' of ' + total + '</span>'
+                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-panel-page"'
+                + ' data-panel="' + esc(id) + '" data-step="1"'
+                + (view.page >= pages - 1 ? ' disabled' : '') + '>Next</button>'
+                + '</div>';
+        }
+
+        return html;
+    }
+
+    function drawPanel(id) {
+        var host = document.getElementById('cwp-panel-' + id);
+
+        if (host) {
+            host.innerHTML = panelBody(id);
+        }
+    }
+
+    function drawPanels() {
+        for (var id in panelViews) {
+            if (Object.prototype.hasOwnProperty.call(panelViews, id)) {
+                drawPanel(id);
+            }
+        }
     }
 
     // label is markup, not text: the callers build it. Values are escaped where they
@@ -328,6 +431,25 @@
         });
     });
 
+    jQuery(document).on('input', '.cwp-panel-search', function () {
+        var id = jQuery(this).data('panel');
+
+        if (panelViews[id]) {
+            panelViews[id].filter = jQuery(this).val() || '';
+            panelViews[id].page = 0;
+            drawPanel(id);
+        }
+    });
+
+    jQuery(document).on('click', '.cwp-panel-page', function () {
+        var id = jQuery(this).data('panel');
+
+        if (panelViews[id]) {
+            panelViews[id].page += parseInt(jQuery(this).data('step'), 10);
+            drawPanel(id);
+        }
+    });
+
     // Re-renders only the table, so the filter box keeps focus and its caret.
     jQuery(document).on('input', '#cwp-filter', function () {
         mailboxView.filter = jQuery(this).val() || '';
@@ -395,9 +517,9 @@
             + '</div>';
 
         html += '<div class="cwp-panels">'
-            + panel('Domains', ['Domain', 'Document Root'], data.domains, ['domain', 'path'])
-            + panel('Subdomains', ['Subdomain', 'Document Root'], data.subdomains, ['name', 'path'])
-            + panel('Databases', ['Database', 'User', 'Host'], data.databases, ['database', 'user', 'host'])
+            + panel('Domains', ['Domain', 'Document Root'], data.domains, ['domain', 'path'], 'domains')
+            + panel('Subdomains', ['Subdomain', 'Document Root'], data.subdomains, ['name', 'path'], 'subdomains')
+            + panel('Databases', ['Database', 'User', 'Host'], data.databases, ['database', 'user', 'host'], 'databases')
             + '</div>';
 
         // Domains the account holds, for the create form's picker. The server checks
@@ -409,6 +531,7 @@
 
         root.innerHTML = html;
 
+        drawPanels();
         loadMailboxes();
     }
 
