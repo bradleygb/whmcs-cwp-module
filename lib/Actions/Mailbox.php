@@ -12,7 +12,7 @@
  * `Undefined offset: 1`, an unhandled notice behind an HTTP 500.
  *
  * @package cwp7
- * @version 2.4.0
+ * @version 2.5.0
  * @author  Booysen Logistics <bradley@booysenlogistics.co.za>
  * @license MIT
  * @link    https://github.com/bradleygb/whmcs-cwp-module
