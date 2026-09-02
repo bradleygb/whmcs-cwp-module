@@ -36,6 +36,12 @@ final class CwpClient
      */
     const MAX_EXCERPT = 900;
 
+    /** Longest raw response written to the module log, in bytes. */
+    const MAX_LOG_BODY = 4000;
+
+    /** Most payload rows written to the module log before they are summarised. */
+    const MAX_LOG_ROWS = 20;
+
     const TLS_VERIFY_ERRORS = [51, 60, 77, 83];
 
     /**
@@ -741,10 +747,74 @@ final class CwpClient
             'cwp7',
             $action,
             $url . ' ' . http_build_query($safePost),
-            $rawResponse === null ? '' : $this->redact($rawResponse),
-            is_string($processed) ? $this->redact($processed) : self::redactPayload($processed),
+            $rawResponse === null ? '' : $this->redact(self::capBody($rawResponse)),
+            is_string($processed) ? $this->redact($processed) : self::redactPayload(self::capRows($processed)),
             $replaceVars
         );
+    }
+
+    /**
+     * Trim a response body to something a log row can hold.
+     *
+     * The head carries the status and enough rows to see the shape; the tail is the same
+     * shape repeated. Says how much it dropped, so nobody reads a truncated body as a
+     * short one.
+     */
+    private static function capBody(string $body): string
+    {
+        $length = strlen($body);
+
+        if ($length <= self::MAX_LOG_BODY) {
+            return $body;
+        }
+
+        return substr($body, 0, self::MAX_LOG_BODY)
+            . sprintf('... [%d of %d bytes logged]', self::MAX_LOG_BODY, $length);
+    }
+
+    /**
+     * Summarise a long list response instead of logging every row.
+     *
+     * email/list returns every mailbox on the account and the client area fetches it on
+     * every page view, so an account with hundreds of mailboxes wrote hundreds of rows
+     * into tblmodulelog each time somebody opened their service page.
+     *
+     * Keeps the first few rows, because the shape is what anyone reading the log is
+     * after, and states how many were dropped.
+     *
+     * @param mixed $processed
+     *
+     * @return mixed
+     */
+    private static function capRows($processed)
+    {
+        if (!is_array($processed)) {
+            return $processed;
+        }
+
+        foreach (self::MESSAGE_KEYS as $key) {
+            if (!isset($processed[$key]) || !is_array($processed[$key])) {
+                continue;
+            }
+
+            $rows = $processed[$key];
+            $count = count($rows);
+
+            if ($count <= self::MAX_LOG_ROWS || !isset($rows[0])) {
+                return $processed;
+            }
+
+            $processed[$key] = array_slice($rows, 0, self::MAX_LOG_ROWS);
+            $processed[$key][] = sprintf(
+                '... %d more rows, not logged (%d in total)',
+                $count - self::MAX_LOG_ROWS,
+                $count
+            );
+
+            return $processed;
+        }
+
+        return $processed;
     }
 
     /**

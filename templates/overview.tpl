@@ -81,6 +81,9 @@
 .cwp-row-acts { white-space: nowrap; text-align: right; }
 .cwp-row-acts button { margin-left: 6px; }
 .cwp-mailbox-form input::placeholder, .cwp-edit input::placeholder { opacity: .4; font-style: italic; }
+.cwp-mailbox-filter { margin: 0 0 10px; max-width: 320px; }
+.cwp-pager { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.cwp-pager-at { font-size: 12px; opacity: .7; }
 .cwp-hint { font-weight: 400; opacity: .55; }
 .cwp-edit { padding: 12px 14px; background: rgba(128, 128, 128, .07); }
 .cwp-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; }
@@ -140,10 +143,30 @@
             + ' name="' + name + '" type="' + type + '"' + (extra || '') + '></div>';
     }
 
+    // Held so filtering and paging can re-render without re-fetching the account.
+    var mailboxView = { rows: [], manageable: false, filter: '', page: 0 };
+    var MAILBOXES_PER_PAGE = 10;
+
+    function matchingMailboxes() {
+        var needle = mailboxView.filter.toLowerCase();
+
+        if (!needle) {
+            return mailboxView.rows;
+        }
+
+        return mailboxView.rows.filter(function (m) {
+            return String(m.address).toLowerCase().indexOf(needle) !== -1;
+        });
+    }
+
     function mailboxes(data) {
         var rows = data.mailboxes || [];
         var html = '<div class="cwp-section"><div class="cwp-section-head">'
             + '<h3>Email Accounts</h3></div>';
+
+        mailboxView.rows = rows;
+        mailboxView.manageable = !!data.manageable;
+        mailboxView.page = 0;
 
         if (data.manageable) {
             html += '<div class="cwp-mailbox-form">'
@@ -161,13 +184,44 @@
                 + '</div>';
         }
 
-        if (!rows.length) {
-            html += '<p class="text-muted">No email accounts yet.</p>';
-        } else {
-            html += '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
+        if (rows.length > MAILBOXES_PER_PAGE) {
+            html += '<div class="cwp-mailbox-filter">'
+                + '<input class="form-control input-sm form-control-sm" id="cwp-filter"'
+                + ' type="search" placeholder="Filter ' + rows.length + ' addresses">'
+                + '</div>';
+        }
+
+        html += '<div id="cwp-mailbox-list"></div>';
+
+        return html + '<div id="cwp-mailbox-msg"></div></div>';
+    }
+
+    function mailboxList() {
+        var rows = matchingMailboxes();
+        var total = rows.length;
+        var pages = Math.max(1, Math.ceil(total / MAILBOXES_PER_PAGE));
+        var html = '';
+
+        if (mailboxView.page >= pages) {
+            mailboxView.page = pages - 1;
+        }
+
+        var from = mailboxView.page * MAILBOXES_PER_PAGE;
+        var page = rows.slice(from, from + MAILBOXES_PER_PAGE);
+
+        if (!mailboxView.rows.length) {
+            return '<p class="text-muted">No email accounts yet.</p>';
+        }
+
+        if (!total) {
+            return '<p class="text-muted">No address matches that.</p>';
+        }
+
+        html += '<div class="cwp-scroll"><table class="table table-condensed table-sm">'
                 + '<thead><tr><th>Address</th><th>Used</th><th>Size</th>'
-                + (data.manageable ? '<th></th>' : '') + '</tr></thead><tbody>'
-                + rows.map(function (m, i) {
+                + (mailboxView.manageable ? '<th></th>' : '') + '</tr></thead><tbody>'
+                + page.map(function (m, i) {
+                    var data = mailboxView;
                     var address = esc(m.address);
 
                     return '<tr><td>' + address + '</td>'
@@ -191,11 +245,29 @@
                                 + '<div><button type="button" class="btn btn-primary btn-block cwp-edit-save" data-address="' + address + '" data-row="' + i + '">Save</button></div>'
                                 + '</div></td></tr>'
                             : '');
-                }).join('')
-                + '</tbody></table></div>';
+            }).join('')
+            + '</tbody></table></div>';
+
+        if (total > MAILBOXES_PER_PAGE) {
+            html += '<div class="cwp-pager">'
+                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-page"'
+                + ' data-step="-1"' + (mailboxView.page === 0 ? ' disabled' : '') + '>Previous</button>'
+                + '<span class="cwp-pager-at">' + (from + 1) + '\u2013' + (from + page.length)
+                + ' of ' + total + '</span>'
+                + '<button type="button" class="btn btn-default btn-xs btn-sm cwp-page"'
+                + ' data-step="1"' + (mailboxView.page >= pages - 1 ? ' disabled' : '') + '>Next</button>'
+                + '</div>';
         }
 
-        return html + '<div id="cwp-mailbox-msg"></div></div>';
+        return html;
+    }
+
+    function drawMailboxList() {
+        var host = document.getElementById('cwp-mailbox-list');
+
+        if (host) {
+            host.innerHTML = mailboxList();
+        }
     }
 
     function say(text, good) {
@@ -237,6 +309,7 @@
                 if (reply && reply.ok && reply.data) {
                     reply.data.domains = domains;
                     host.innerHTML = mailboxes(reply.data);
+                    drawMailboxList();
                 } else {
                     host.innerHTML = '';
                 }
@@ -253,6 +326,23 @@
             loadMailboxes();
             setTimeout(function () { say(data.address + ' created.', true); }, 400);
         });
+    });
+
+    // Re-renders only the table, so the filter box keeps focus and its caret.
+    jQuery(document).on('input', '#cwp-filter', function () {
+        mailboxView.filter = jQuery(this).val() || '';
+        mailboxView.page = 0;
+        drawMailboxList();
+    });
+
+    jQuery(document).on('click', '.cwp-page', function () {
+        mailboxView.page += parseInt(jQuery(this).data('step'), 10);
+
+        if (mailboxView.page < 0) {
+            mailboxView.page = 0;
+        }
+
+        drawMailboxList();
     });
 
     jQuery(document).on('click', '.cwp-edit-open', function () {
